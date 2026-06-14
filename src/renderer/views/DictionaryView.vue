@@ -4,6 +4,7 @@ import { useStore } from 'vuex'
 import { ElMessage } from 'element-plus'
 import type { RootState } from '../store'
 import type { RegisterDefinition } from '../../shared/types'
+import { getDefaultLengthForType } from '../utils/register-data'
 
 const store = useStore<RootState>()
 const dialogVisible = ref(false)
@@ -49,6 +50,16 @@ function openEditDialog(item: RegisterDefinition, index: number): void {
   editingIndex.value = index
   Object.assign(draft, item)
   dialogVisible.value = true
+}
+
+/**
+ * @brief 数据类型变更时自动更新默认长度。
+ *
+ * 根据数据类型推荐合适的寄存器长度，用户仍可手动覆盖。
+ * @param newType 新选择的数据类型。
+ */
+function onDataTypeChange(newType: string): void {
+  draft.length = getDefaultLengthForType(newType)
 }
 
 /**
@@ -98,7 +109,7 @@ function saveItem(): void {
           <el-form-item label="分组"><el-input v-model="draft.group" placeholder="例如：温度传感器" /></el-form-item>
           <el-form-item label="名称"><el-input v-model="draft.name" placeholder="请输入寄存器名称" /></el-form-item>
           <el-form-item label="地址"><el-input-number v-model="draft.address" :min="0" :max="65535" controls-position="right" /></el-form-item>
-          <el-form-item label="数据类型"><el-select v-model="draft.dataType"><el-option v-for="type in ['UINT16','INT16','UINT32','INT32','FLOAT_ABCD','FLOAT_CDAB','FLOAT_BADC','FLOAT_DCBA','BCD','BIT']" :key="type" :label="type" :value="type" /></el-select></el-form-item>
+          <el-form-item label="数据类型"><el-select v-model="draft.dataType" @change="onDataTypeChange"><el-option v-for="type in ['UINT16','INT16','UINT32','INT32','FLOAT_ABCD','FLOAT_CDAB','FLOAT_BADC','FLOAT_DCBA','BCD','BIT']" :key="type" :label="type" :value="type" /></el-select></el-form-item>
           <el-form-item label="长度"><el-input-number v-model="draft.length" :min="1" :max="125" controls-position="right" /></el-form-item>
           <el-form-item label="读写权限"><el-select v-model="draft.access"><el-option label="只读 R" value="R" /><el-option label="只写 W" value="W" /><el-option label="读写 RW" value="RW" /></el-select></el-form-item>
           <el-form-item label="比例因子"><el-input-number v-model="draft.factor" :precision="4" :step="0.1" controls-position="right" /></el-form-item>

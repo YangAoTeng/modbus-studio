@@ -6,6 +6,28 @@ export interface RegisterAddressInfo {
 }
 
 /**
+ * @brief 数据类型到默认寄存器长度的映射。
+ *
+ * 单寄存器类型长度为 1，双寄存器类型（32 位整型、浮点、BCD）长度为 2。
+ */
+export const DATA_TYPE_DEFAULT_LENGTHS: Record<string, number> = {
+  UINT16: 1, INT16: 1, BIT: 1,
+  UINT32: 2, INT32: 2, BCD: 2,
+  FLOAT_ABCD: 2, FLOAT_CDAB: 2, FLOAT_BADC: 2, FLOAT_DCBA: 2
+}
+
+/**
+ * @brief 获取数据类型的默认寄存器长度。
+ *
+ * 未识别的数据类型默认返回 1，避免意外赋值。
+ * @param dataType 数据类型字符串。
+ * @returns 默认寄存器个数。
+ */
+export function getDefaultLengthForType(dataType: string): number {
+  return DATA_TYPE_DEFAULT_LENGTHS[dataType] ?? 1
+}
+
+/**
  * @brief 解析字典显示地址所属的 Modbus 数据区。
  *
  * 将 0xxxx、1xxxx、3xxxx、4xxxx 显示地址转换为 Server 使用的数据区名称和零基协议地址。

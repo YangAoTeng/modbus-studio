@@ -96,7 +96,7 @@ export interface ProjectData {
     tcpHost: string
     tcpPort: number
   }
-  client: ReadRegistersParams & { pollInterval: number }
+  client: ReadRegistersParams & { pollInterval: number; mergeRead?: boolean }
   registerDictionary: RegisterDefinition[]
   clientData?: {
     dictionaryRegisters: Record<string, number[]>

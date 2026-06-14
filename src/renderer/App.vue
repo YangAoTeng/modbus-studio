@@ -56,6 +56,6 @@ async function closeWindow(): Promise<void> {
       </div>
     </header>
     <main class="main-stage"><RouterView /></main>
-    <footer class="statusbar">Modbus Studio v1.1.0 <span>Electron + Vue 3</span></footer>
+    <footer class="statusbar">Modbus Studio v1.1.0</footer>
   </div>
 </template>

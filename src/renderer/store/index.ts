@@ -23,6 +23,8 @@ export interface RootState {
     quantity: number
     pollInterval: number
     polling: boolean
+    mergeRead: boolean
+    reading: boolean
     registers: number[]
     dictionaryRegisters: Record<string, number[]>
     lastElapsedMs: number
@@ -41,6 +43,11 @@ export interface RootState {
 
 let logSequence = 1
 
+/* 全局轮询状态 —— 存放于 store 模块作用域而非组件内，确保切换页面后轮询继续运行 */
+let pollTimer: ReturnType<typeof setInterval> | undefined
+let pollPromise: Promise<void> | null = null
+let lastPollError = ''
+
 /**
  * @brief 生成默认寄存器字典。
  *
@@ -48,13 +55,48 @@ let logSequence = 1
  * @returns 默认寄存器定义数组。
  */
 function createDefaultDictionary(): RegisterDefinition[] {
-  return [
-    { group: '温度传感器', address: 40001, name: '温度值', dataType: 'FLOAT_ABCD', length: 2, access: 'R', factor: 0.1, unit: '°C', remark: '当前温度值' },
-    { group: '温度传感器', address: 40003, name: '湿度值', dataType: 'UINT16', length: 1, access: 'R', factor: 1, unit: '%', remark: '相对湿度' },
-    { group: '温度传感器', address: 40004, name: '压力值', dataType: 'UINT32', length: 2, access: 'R', factor: 0.01, unit: 'kPa', remark: '压力值' },
-    { group: '系统状态', address: 40006, name: '系统状态', dataType: 'UINT16', length: 1, access: 'R', factor: 1, unit: '无', remark: '系统运行状态' },
-    { group: '控制参数', address: 40009, name: '设定温度', dataType: 'FLOAT_ABCD', length: 2, access: 'RW', factor: 0.1, unit: '°C', remark: '目标温度' }
-  ]
+  return []
+}
+
+/**
+ * @brief 合并读取分组。
+ *
+ * 表示一次连续地址范围 Modbus 读取所覆盖的多个字典条目及各自在响应中的偏移量。
+ */
+interface ReadGroup {
+  functionCode: 3 | 4
+  startAddress: number
+  quantity: number
+  items: { item: RegisterDefinition; offset: number }[]
+}
+
+/**
+ * @brief 将可读字典条目按连续地址分组。
+ *
+ * 按地址升序排列，当相邻条目地址连续（前一条 address + length === 后一条 address）
+ * 且功能码相同时归入同一组，以减少 Modbus 读取次数。
+ * @param items 已过滤的可读条目。
+ * @returns 按连续地址合并的读取计划。
+ */
+function groupConsecutiveItems(items: RegisterDefinition[]): ReadGroup[] {
+  if (items.length === 0) return []
+  const sorted = [...items].sort((a, b) => a.address - b.address)
+  const groups: ReadGroup[] = []
+  let current: ReadGroup | null = null
+  for (const item of sorted) {
+    const functionCode: 3 | 4 = item.address >= 40001 ? 3 : 4
+    const baseAddress = functionCode === 3 ? 40001 : 30001
+    const protocolAddress = item.address - baseAddress
+    if (current && current.functionCode === functionCode && current.startAddress + current.quantity === protocolAddress) {
+      const offset = current.quantity
+      current.quantity += item.length
+      current.items.push({ item, offset })
+    } else {
+      current = { functionCode, startAddress: protocolAddress, quantity: item.length, items: [{ item, offset: 0 }] }
+      groups.push(current)
+    }
+  }
+  return groups
 }
 
 const store = createStore<RootState>({
@@ -66,7 +108,7 @@ const store = createStore<RootState>({
     connection: { path: 'COM3', baudRate: 115200, dataBits: 8, stopBits: 1, parity: 'none', timeout: 1000 },
     tcp: { host: '127.0.0.1', port: 502, timeout: 1000 },
     server: { protocol: 'TCP', slaveId: 1, tcpHost: '0.0.0.0', tcpPort: 502, dictionaryRegisters: {}, requestCount: 0 },
-    client: { slaveId: 1, functionCode: 3, startAddress: 0, quantity: 10, pollInterval: 1000, polling: false, registers: [], dictionaryRegisters: {}, lastElapsedMs: 0 },
+    client: { slaveId: 1, functionCode: 3, startAddress: 0, quantity: 10, pollInterval: 1000, polling: false, mergeRead: false, reading: false, registers: [], dictionaryRegisters: {}, lastElapsedMs: 0 },
     logs: [],
     dictionary: createDefaultDictionary(),
     project: { path: '', name: '未命名工程', description: '', version: '1.1.0', dirty: false },
@@ -78,6 +120,8 @@ const store = createStore<RootState>({
     setConnected(state, value: boolean) { state.connected = value },
     setProtocol(state, value: ProtocolMode) { state.protocol = value },
     setPolling(state, value: boolean) { state.client.polling = value },
+    setMergeRead(state, value: boolean) { state.client.mergeRead = value },
+    setReading(state, value: boolean) { state.client.reading = value },
     setRegisters(state, payload: { values: number[]; elapsedMs: number }) {
       state.client.registers = payload.values
       state.client.lastElapsedMs = payload.elapsedMs
@@ -121,7 +165,7 @@ const store = createStore<RootState>({
       Object.assign(state.connection, { path: 'COM3', baudRate: 115200, dataBits: 8, stopBits: 1, parity: 'none', timeout: 1000 })
       Object.assign(state.tcp, { host: '127.0.0.1', port: 502, timeout: 1000 })
       Object.assign(state.server, { protocol: 'TCP', slaveId: 1, tcpHost: '0.0.0.0', tcpPort: 502, dictionaryRegisters: {}, requestCount: 0 })
-      Object.assign(state.client, { slaveId: 1, functionCode: 3, startAddress: 0, quantity: 10, pollInterval: 1000, polling: false, registers: [], dictionaryRegisters: {}, lastElapsedMs: 0 })
+      Object.assign(state.client, { slaveId: 1, functionCode: 3, startAddress: 0, quantity: 10, pollInterval: 1000, polling: false, mergeRead: false, reading: false, registers: [], dictionaryRegisters: {}, lastElapsedMs: 0 })
       state.logs = []
       state.dictionary = []
       state.project = { path: '', name: '未命名工程', description: '', version: '1.1.0', dirty: false }
@@ -149,14 +193,14 @@ const store = createStore<RootState>({
      *
      * 已连接时关闭串口，未连接时按当前配置打开串口，并维护连接中状态。
      */
-    async toggleConnection({ commit, state }) {
+    async toggleConnection({ commit, state, dispatch }) {
       commit('setConnecting', true)
       try {
         if (state.connected) {
+          await dispatch('stopPolling')
           if (state.protocol === 'TCP') await window.modbusApi.tcp.disconnect()
           else await window.modbusApi.serial.close()
           commit('setConnected', false)
-          commit('setPolling', false)
         } else {
           if (state.protocol === 'TCP') {
             await window.modbusApi.tcp.connect({
@@ -175,11 +219,86 @@ const store = createStore<RootState>({
             })
           }
           commit('setConnected', true)
+          await dispatch('startPolling')
         }
       } finally {
         commit('setConnecting', false)
       }
     },
+    /**
+     * @brief 执行一轮字典轮询（内部实现）。
+     *
+     * 防重入包装 readDictionary，失败时去重报错，维护 reading 状态与 pollPromise 引用。
+     */
+    async runPollCycle({ commit, state, dispatch }) {
+      if (!state.connected || state.client.reading) return
+      commit('setReading', true)
+      pollPromise = (async () => {
+        try {
+          await dispatch('readDictionary')
+          lastPollError = ''
+        } catch (error) {
+          const message = (error as Error).message
+          if (message !== lastPollError) {
+            const { ElMessage } = await import('element-plus')
+            ElMessage.error(`字典轮询失败：${message}`)
+          }
+          lastPollError = message
+        } finally {
+          commit('setReading', false)
+          pollPromise = null
+        }
+      })()
+      await pollPromise
+    },
+
+    /**
+     * @brief 启动字典循环读取。
+     *
+     * 清除已有定时器后立即执行一轮读取，再按 pollInterval 周期调度。
+     * 连接建立后由 toggleConnection 自动调用；pollInterval 变更时由 setPollInterval 重启。
+     */
+    async startPolling({ commit, state, dispatch }) {
+      await dispatch('stopPolling')
+      commit('setPolling', true)
+      await dispatch('runPollCycle')
+      if (state.client.pollInterval > 0) {
+        pollTimer = setInterval(() => { void dispatch('runPollCycle') }, state.client.pollInterval)
+      }
+    },
+
+    /**
+     * @brief 停止字典循环读取。
+     *
+     * 清除定时器并标记轮询结束；断开连接或更改轮询参数时调用。
+     */
+    async stopPolling({ commit }) {
+      if (pollTimer !== undefined) { clearInterval(pollTimer); pollTimer = undefined }
+      commit('setPolling', false)
+      commit('setReading', false)
+    },
+
+    /**
+     * @brief 等待当前轮询完成。
+     *
+     * 供 commitCell 等写入操作在暂停轮询后等待进行中的读取事务结束。
+     */
+    async waitForPollComplete() {
+      if (pollPromise) {
+        try { await pollPromise } catch { /* 错误已由 runPollCycle 处理 */ }
+      }
+    },
+
+    /**
+     * @brief 更新轮询间隔并在连接状态时重启轮询。
+     * @param context Vuex 动作上下文。
+     * @param intervalMs 新轮询间隔（毫秒）。
+     */
+    async setPollInterval({ commit, state, dispatch }, intervalMs: number) {
+      state.client.pollInterval = intervalMs
+      if (state.connected) await dispatch('startPolling')
+    },
+
     /**
      * @brief 执行一次寄存器读取。
      *
@@ -202,26 +321,51 @@ const store = createStore<RootState>({
     /**
      * @brief 按寄存器字典执行一轮读取。
      *
-     * 仅读取权限为 R 或 RW 的 3xxxx、4xxxx 条目，并严格使用每个字典项指定的地址和长度。
+     * 仅读取权限为 R 或 RW 的 3xxxx、4xxxx 条目。
+     * 开启合并读取时，将地址连续的条目合并为一次 Modbus 读取以减少通信次数。
      */
     async readDictionary({ commit, state }) {
       const readableItems = state.dictionary.filter((item) => item.access !== 'W' && ((item.address >= 30001 && item.address <= 39999) || (item.address >= 40001 && item.address <= 49999)))
-      for (const item of readableItems) {
-        const functionCode: 3 | 4 = item.address >= 40001 ? 3 : 4
-        const baseAddress = functionCode === 3 ? 40001 : 30001
-        const protocolAddress = item.address - baseAddress
-        const result = await window.modbusApi.client.readRegisters({
-          protocol: state.protocol,
-          slaveId: state.client.slaveId,
-          functionCode,
-          startAddress: protocolAddress,
-          quantity: item.length,
-          timeout: state.protocol === 'TCP' ? state.tcp.timeout : state.connection.timeout
-        })
-        const time = new Date().toLocaleTimeString('zh-CN', { hour12: false })
-        commit('addLog', { time, direction: 'TX', protocol: state.protocol, raw: result.tx, parsed: `字典读取 ${item.name}，地址 ${item.address}，长度 ${item.length}`, elapsedMs: 0, status: '发送' })
-        commit('addLog', { time, direction: 'RX', protocol: state.protocol, raw: result.rx, parsed: `${item.name} 读取成功`, elapsedMs: result.elapsedMs, status: '成功' })
-        commit('setDictionaryRegisters', { key: String(item.address), values: result.registers, elapsedMs: result.elapsedMs })
+      if (readableItems.length === 0) return
+      const timeout = state.protocol === 'TCP' ? state.tcp.timeout : state.connection.timeout
+
+      if (state.client.mergeRead) {
+        const groups = groupConsecutiveItems(readableItems)
+        for (const group of groups) {
+          const result = await window.modbusApi.client.readRegisters({
+            protocol: state.protocol,
+            slaveId: state.client.slaveId,
+            functionCode: group.functionCode,
+            startAddress: group.startAddress,
+            quantity: group.quantity,
+            timeout
+          })
+          const time = new Date().toLocaleTimeString('zh-CN', { hour12: false })
+          const fc = group.functionCode.toString().padStart(2, '0')
+          commit('addLog', { time, direction: 'TX', protocol: state.protocol, raw: result.tx, parsed: `合并读取 FC${fc}，起始地址 ${group.startAddress}，数量 ${group.quantity}（${group.items.length} 个字典项）`, elapsedMs: 0, status: '发送' })
+          commit('addLog', { time, direction: 'RX', protocol: state.protocol, raw: result.rx, parsed: `合并读取成功，收到 ${result.registers.length} 个寄存器`, elapsedMs: result.elapsedMs, status: '成功' })
+          for (const { item, offset } of group.items) {
+            commit('setDictionaryRegisters', { key: String(item.address), values: result.registers.slice(offset, offset + item.length), elapsedMs: result.elapsedMs })
+          }
+        }
+      } else {
+        for (const item of readableItems) {
+          const functionCode: 3 | 4 = item.address >= 40001 ? 3 : 4
+          const baseAddress = functionCode === 3 ? 40001 : 30001
+          const protocolAddress = item.address - baseAddress
+          const result = await window.modbusApi.client.readRegisters({
+            protocol: state.protocol,
+            slaveId: state.client.slaveId,
+            functionCode,
+            startAddress: protocolAddress,
+            quantity: item.length,
+            timeout
+          })
+          const time = new Date().toLocaleTimeString('zh-CN', { hour12: false })
+          commit('addLog', { time, direction: 'TX', protocol: state.protocol, raw: result.tx, parsed: `字典读取 ${item.name}，地址 ${item.address}，长度 ${item.length}`, elapsedMs: 0, status: '发送' })
+          commit('addLog', { time, direction: 'RX', protocol: state.protocol, raw: result.rx, parsed: `${item.name} 读取成功`, elapsedMs: result.elapsedMs, status: '成功' })
+          commit('setDictionaryRegisters', { key: String(item.address), values: result.registers, elapsedMs: result.elapsedMs })
+        }
       }
     },
     /**
@@ -267,7 +411,7 @@ const store = createStore<RootState>({
         protocol: state.protocol,
         tcp: { ...state.tcp },
         server: { protocol: state.server.protocol, slaveId: state.server.slaveId, tcpHost: state.server.tcpHost, tcpPort: state.server.tcpPort },
-        client: { slaveId: state.client.slaveId, functionCode: state.client.functionCode, startAddress: state.client.startAddress, quantity: state.client.quantity, timeout: state.connection.timeout, pollInterval: state.client.pollInterval },
+        client: { slaveId: state.client.slaveId, functionCode: state.client.functionCode, startAddress: state.client.startAddress, quantity: state.client.quantity, timeout: state.connection.timeout, pollInterval: state.client.pollInterval, mergeRead: state.client.mergeRead },
         registerDictionary: state.dictionary.map((item) => ({ ...item })),
         clientData: {
           dictionaryRegisters: Object.fromEntries(Object.entries(state.client.dictionaryRegisters).map(([key, values]) => [key, [...values]])),
