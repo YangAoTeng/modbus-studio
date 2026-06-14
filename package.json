@@ -1,0 +1,49 @@
+{
+  "name": "modbus-studio",
+  "version": "1.1.0",
+  "description": "基于 Electron 与 Vue 3 的 Modbus RTU 调试工具",
+  "main": "dist-electron/main/index.js",
+  "author": "杨鏊腾",
+  "license": "UNLICENSED",
+  "scripts": {
+    "dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron .\"",
+    "build": "vite build && tsc -p tsconfig.electron.json",
+    "start": "electron .",
+    "pack": "npm run build && electron-builder --dir",
+    "dist": "npm run build && electron-builder"
+  },
+  "dependencies": {
+    "@element-plus/icons-vue": "2.3.1",
+    "element-plus": "2.9.11",
+    "serialport": "13.0.0",
+    "vue": "3.5.16",
+    "vue-router": "4.5.1",
+    "vuex": "4.1.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "5.2.4",
+    "concurrently": "^9.1.2",
+    "cross-env": "^7.0.3",
+    "electron": "^36.4.0",
+    "electron-builder": "^26.0.12",
+    "typescript": "5.8.3",
+    "vite": "6.3.5",
+    "vue-tsc": "2.2.10",
+    "wait-on": "^8.0.3"
+  },
+  "build": {
+    "appId": "com.yunding.modbusstudio",
+    "productName": "Modbus Studio",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis"
+    }
+  }
+}
