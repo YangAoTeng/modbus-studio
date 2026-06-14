@@ -1,5 +1,5 @@
 import { createStore } from 'vuex'
-import type { PacketLogItem, ProjectData, ProtocolMode, RegisterDefinition, SerialConfig, TcpConfig } from '../../shared/types'
+import type { PacketLogItem, ProjectData, ProtocolMode, RecentProject, RegisterDefinition, SerialConfig, TcpConfig } from '../../shared/types'
 
 export interface RootState {
   protocol: ProtocolMode
@@ -13,6 +13,8 @@ export interface RootState {
     slaveId: number
     tcpHost: string
     tcpPort: number
+    dictionaryRegisters: Record<string, number[]>
+    requestCount: number
   }
   client: {
     slaveId: number
@@ -22,6 +24,7 @@ export interface RootState {
     pollInterval: number
     polling: boolean
     registers: number[]
+    dictionaryRegisters: Record<string, number[]>
     lastElapsedMs: number
   }
   logs: PacketLogItem[]
@@ -31,7 +34,9 @@ export interface RootState {
     name: string
     description: string
     version: string
+    dirty: boolean
   }
+  recentProjects: RecentProject[]
 }
 
 let logSequence = 1
@@ -60,11 +65,12 @@ const store = createStore<RootState>({
     ports: [],
     connection: { path: 'COM3', baudRate: 115200, dataBits: 8, stopBits: 1, parity: 'none', timeout: 1000 },
     tcp: { host: '127.0.0.1', port: 502, timeout: 1000 },
-    server: { protocol: 'TCP', slaveId: 1, tcpHost: '0.0.0.0', tcpPort: 502 },
-    client: { slaveId: 1, functionCode: 3, startAddress: 0, quantity: 10, pollInterval: 1000, polling: false, registers: [], lastElapsedMs: 0 },
+    server: { protocol: 'TCP', slaveId: 1, tcpHost: '0.0.0.0', tcpPort: 502, dictionaryRegisters: {}, requestCount: 0 },
+    client: { slaveId: 1, functionCode: 3, startAddress: 0, quantity: 10, pollInterval: 1000, polling: false, registers: [], dictionaryRegisters: {}, lastElapsedMs: 0 },
     logs: [],
     dictionary: createDefaultDictionary(),
-    project: { path: '', name: '温度监控系统', description: '温度传感器轮询和配置', version: '1.1.0' }
+    project: { path: '', name: '未命名工程', description: '', version: '1.1.0', dirty: false },
+    recentProjects: []
   },
   mutations: {
     setPorts(state, ports: string[]) { state.ports = ports },
@@ -76,23 +82,53 @@ const store = createStore<RootState>({
       state.client.registers = payload.values
       state.client.lastElapsedMs = payload.elapsedMs
     },
+    setDictionaryRegisters(state, payload: { key: string; values: number[]; elapsedMs: number }) {
+      state.client.dictionaryRegisters = { ...state.client.dictionaryRegisters, [payload.key]: payload.values }
+      state.client.lastElapsedMs = payload.elapsedMs
+    },
+    setServerDictionaryRegisters(state, payload: { key: string; values: number[] }) {
+      state.server.dictionaryRegisters = { ...state.server.dictionaryRegisters, [payload.key]: payload.values }
+    },
+    incrementServerRequestCount(state) { state.server.requestCount += 1 },
     addLog(state, item: Omit<PacketLogItem, 'id'>) {
       state.logs.unshift({ id: logSequence++, ...item })
       if (state.logs.length > 1000) state.logs.length = 1000
     },
     clearLogs(state) { state.logs = [] },
-    addDictionaryItem(state, item: RegisterDefinition) { state.dictionary.push(item) },
-    removeDictionaryItem(state, index: number) { state.dictionary.splice(index, 1) },
+    addDictionaryItem(state, item: RegisterDefinition) { state.dictionary.push(item); state.project.dirty = true },
+    updateDictionaryItem(state, payload: { index: number; item: RegisterDefinition }) { state.dictionary.splice(payload.index, 1, payload.item); state.project.dirty = true },
+    removeDictionaryItem(state, index: number) { state.dictionary.splice(index, 1); state.project.dirty = true },
     applyProject(state, payload: { path: string; data: ProjectData }) {
-      state.project = { path: payload.path, name: payload.data.name, description: payload.data.description, version: payload.data.version }
+      state.project = { path: payload.path, name: payload.data.name, description: payload.data.description, version: payload.data.version, dirty: false }
       state.protocol = payload.data.protocol ?? 'RTU'
       Object.assign(state.connection, payload.data.connection)
       if (payload.data.tcp) Object.assign(state.tcp, payload.data.tcp)
       if (payload.data.server) Object.assign(state.server, payload.data.server)
-      Object.assign(state.client, payload.data.client)
+      Object.assign(state.client, payload.data.client, {
+        polling: false,
+        registers: [],
+        dictionaryRegisters: payload.data.clientData?.dictionaryRegisters ?? {},
+        lastElapsedMs: payload.data.clientData?.lastElapsedMs ?? 0
+      })
+      state.server.dictionaryRegisters = payload.data.serverData?.dictionaryRegisters ?? {}
+      state.server.requestCount = payload.data.serverData?.requestCount ?? 0
+      state.logs = payload.data.packetLogs?.map((item) => ({ ...item })) ?? []
+      logSequence = state.logs.reduce((maximum, item) => Math.max(maximum, item.id), 0) + 1
       state.dictionary = payload.data.registerDictionary
     },
-    setProjectPath(state, path: string) { state.project.path = path }
+    resetProject(state) {
+      state.protocol = 'RTU'
+      Object.assign(state.connection, { path: 'COM3', baudRate: 115200, dataBits: 8, stopBits: 1, parity: 'none', timeout: 1000 })
+      Object.assign(state.tcp, { host: '127.0.0.1', port: 502, timeout: 1000 })
+      Object.assign(state.server, { protocol: 'TCP', slaveId: 1, tcpHost: '0.0.0.0', tcpPort: 502, dictionaryRegisters: {}, requestCount: 0 })
+      Object.assign(state.client, { slaveId: 1, functionCode: 3, startAddress: 0, quantity: 10, pollInterval: 1000, polling: false, registers: [], dictionaryRegisters: {}, lastElapsedMs: 0 })
+      state.logs = []
+      state.dictionary = []
+      state.project = { path: '', name: '未命名工程', description: '', version: '1.1.0', dirty: false }
+    },
+    setProjectPath(state, path: string) { state.project.path = path; state.project.dirty = false },
+    setProjectDirty(state, value: boolean) { state.project.dirty = value },
+    setRecentProjects(state, projects: RecentProject[]) { state.recentProjects = projects }
   },
   actions: {
     /**
@@ -122,8 +158,22 @@ const store = createStore<RootState>({
           commit('setConnected', false)
           commit('setPolling', false)
         } else {
-          if (state.protocol === 'TCP') await window.modbusApi.tcp.connect(state.tcp)
-          else await window.modbusApi.serial.open(state.connection)
+          if (state.protocol === 'TCP') {
+            await window.modbusApi.tcp.connect({
+              host: String(state.tcp.host),
+              port: Number(state.tcp.port),
+              timeout: Number(state.tcp.timeout)
+            })
+          } else {
+            await window.modbusApi.serial.open({
+              path: String(state.connection.path),
+              baudRate: Number(state.connection.baudRate),
+              dataBits: state.connection.dataBits,
+              stopBits: state.connection.stopBits,
+              parity: state.connection.parity,
+              timeout: Number(state.connection.timeout)
+            })
+          }
           commit('setConnected', true)
         }
       } finally {
@@ -150,6 +200,31 @@ const store = createStore<RootState>({
       commit('setRegisters', { values: result.registers, elapsedMs: result.elapsedMs })
     },
     /**
+     * @brief 按寄存器字典执行一轮读取。
+     *
+     * 仅读取权限为 R 或 RW 的 3xxxx、4xxxx 条目，并严格使用每个字典项指定的地址和长度。
+     */
+    async readDictionary({ commit, state }) {
+      const readableItems = state.dictionary.filter((item) => item.access !== 'W' && ((item.address >= 30001 && item.address <= 39999) || (item.address >= 40001 && item.address <= 49999)))
+      for (const item of readableItems) {
+        const functionCode: 3 | 4 = item.address >= 40001 ? 3 : 4
+        const baseAddress = functionCode === 3 ? 40001 : 30001
+        const protocolAddress = item.address - baseAddress
+        const result = await window.modbusApi.client.readRegisters({
+          protocol: state.protocol,
+          slaveId: state.client.slaveId,
+          functionCode,
+          startAddress: protocolAddress,
+          quantity: item.length,
+          timeout: state.protocol === 'TCP' ? state.tcp.timeout : state.connection.timeout
+        })
+        const time = new Date().toLocaleTimeString('zh-CN', { hour12: false })
+        commit('addLog', { time, direction: 'TX', protocol: state.protocol, raw: result.tx, parsed: `字典读取 ${item.name}，地址 ${item.address}，长度 ${item.length}`, elapsedMs: 0, status: '发送' })
+        commit('addLog', { time, direction: 'RX', protocol: state.protocol, raw: result.rx, parsed: `${item.name} 读取成功`, elapsedMs: result.elapsedMs, status: '成功' })
+        commit('setDictionaryRegisters', { key: String(item.address), values: result.registers, elapsedMs: result.elapsedMs })
+      }
+    },
+    /**
      * @brief 写入一个或多个保持寄存器。
      *
      * 根据值数组长度选择 06 或 16 功能码，成功后记录发送和接收报文。
@@ -171,16 +246,19 @@ const store = createStore<RootState>({
      *
      * 读取用户选择的 MBS 或 JSON 文件，将连接、Client 和字典配置应用到当前工程。
      */
-    async openProject({ commit }) {
+    async openProject({ commit, dispatch }) {
       const result = await window.modbusApi.project.open()
-      if (result) commit('applyProject', result)
+      if (!result) return false
+      commit('applyProject', result)
+      await dispatch('refreshRecentProjects')
+      return true
     },
     /**
      * @brief 保存当前工程状态。
      *
      * 将连接配置、轮询参数和寄存器字典序列化为 MBS 文件，首次保存时弹出路径选择框。
      */
-    async saveProject({ commit, state }) {
+    async saveProject({ commit, state, dispatch }, saveAs = false) {
       const data: ProjectData = {
         name: state.project.name,
         description: state.project.description,
@@ -188,12 +266,59 @@ const store = createStore<RootState>({
         connection: { ...state.connection },
         protocol: state.protocol,
         tcp: { ...state.tcp },
-        server: { ...state.server },
+        server: { protocol: state.server.protocol, slaveId: state.server.slaveId, tcpHost: state.server.tcpHost, tcpPort: state.server.tcpPort },
         client: { slaveId: state.client.slaveId, functionCode: state.client.functionCode, startAddress: state.client.startAddress, quantity: state.client.quantity, timeout: state.connection.timeout, pollInterval: state.client.pollInterval },
-        registerDictionary: state.dictionary
+        registerDictionary: state.dictionary.map((item) => ({ ...item })),
+        clientData: {
+          dictionaryRegisters: Object.fromEntries(Object.entries(state.client.dictionaryRegisters).map(([key, values]) => [key, [...values]])),
+          lastElapsedMs: state.client.lastElapsedMs
+        },
+        serverData: {
+          dictionaryRegisters: Object.fromEntries(state.dictionary.map((item) => {
+            const values = state.server.dictionaryRegisters[String(item.address)] ?? Array.from({ length: Math.max(1, item.length) }, () => 0)
+            return [String(item.address), [...values]]
+          })),
+          requestCount: state.server.requestCount
+        },
+        packetLogs: state.logs.map((item) => ({ ...item }))
       }
-      const path = await window.modbusApi.project.save(data, state.project.path || undefined)
-      if (path) commit('setProjectPath', path)
+      const serializableData = JSON.parse(JSON.stringify(data)) as ProjectData
+      const path = await window.modbusApi.project.save(serializableData, state.project.path || undefined, saveAs)
+      if (!path) return false
+      commit('setProjectPath', path)
+      await dispatch('refreshRecentProjects')
+      return true
+    },
+    /**
+     * @brief 打开最近工程。
+     *
+     * 直接读取最近列表中的路径并应用工程数据，同时刷新最近工程排序。
+     * @param context Vuex 动作上下文。
+     * @param path 工程文件路径。
+     */
+    async openRecentProject({ commit, dispatch }, path: string) {
+      const result = await window.modbusApi.project.openPath(path)
+      commit('applyProject', result)
+      await dispatch('refreshRecentProjects')
+    },
+    /**
+     * @brief 刷新最近工程列表。
+     *
+     * 从主进程用户数据目录读取最多十条最近工程记录。
+     */
+    async refreshRecentProjects({ commit }) {
+      if (!window.modbusApi) return
+      commit('setRecentProjects', await window.modbusApi.project.listRecent())
+    },
+    /**
+     * @brief 移除最近工程记录。
+     *
+     * 仅删除最近列表记录，不删除磁盘上的工程文件。
+     * @param context Vuex 动作上下文。
+     * @param path 工程文件路径。
+     */
+    async removeRecentProject({ commit }, path: string) {
+      commit('setRecentProjects', await window.modbusApi.project.removeRecent(path))
     }
   }
 })

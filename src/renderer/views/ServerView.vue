@@ -1,50 +1,45 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useStore } from 'vuex'
 import { ElMessage } from 'element-plus'
 import type { RootState } from '../store'
-import type { ProtocolMode, ServerAreaName, ServerDataUpdate, ServerEvent } from '../../shared/types'
+import type { RegisterDefinition, ServerAreaName, ServerDataUpdate, ServerEvent } from '../../shared/types'
+import { decodeRegisterValue, encodeRegisterValue, formatRegisterHex, resolveRegisterAddress } from '../utils/register-data'
 
-interface ServerRow {
-  address: number
-  protocolAddress: number
-  value: number
-  writable: boolean
-  remark: string
-}
+type EditableField = 'hex' | 'parsed'
 
 const store = useStore<RootState>()
 const activeArea = ref<ServerAreaName>('holding')
 const running = ref(false)
-const requestCount = ref(0)
+const editValues = reactive<Record<string, string>>({})
 let removeServerListener: (() => void) | undefined
 
-/**
- * @brief 创建 Server 数据区的默认数据。
- *
- * 同时保存界面显示地址和 Modbus PDU 零基地址，便于协议服务与表格之间转换。
- * @param displayStart 界面显示起始地址。
- * @param writable 外部主站是否允许写入。
- * @returns Server 数据行数组。
- */
-function createRows(displayStart: number, writable: boolean): ServerRow[] {
-  return Array.from({ length: 100 }, (_, index) => ({ address: displayStart + index, protocolAddress: index, value: index, writable, remark: '' }))
-}
-
-const areas = ref<Record<ServerAreaName, ServerRow[]>>({
-  coil: createRows(1, true),
-  discrete: createRows(10001, false),
-  input: createRows(30001, false),
-  holding: createRows(40001, true)
-})
-
-const activeRows = computed(() => areas.value[activeArea.value])
+const activeRows = computed(() => store.state.dictionary.flatMap((item) => {
+  const addressInfo = resolveRegisterAddress(item.address)
+  if (!addressInfo || addressInfo.area !== activeArea.value) return []
+  const values = getServerValues(item)
+  return [{ item, addressInfo, values, hex: formatRegisterHex(values), parsed: decodeRegisterValue(item, values) }]
+}))
 const isBitArea = computed(() => activeArea.value === 'coil' || activeArea.value === 'discrete')
+const serverPointCount = computed(() => store.state.dictionary.filter((item) => resolveRegisterAddress(item.address)).reduce((total, item) => total + Math.max(1, item.length), 0))
+
+/**
+ * @brief 获取 Server 字典项当前原始值。
+ *
+ * 优先返回工程中保存的值，首次使用时按照字典长度生成零值数组。
+ * @param item 字典条目。
+ * @returns 与字典长度一致的寄存器或位数组。
+ */
+function getServerValues(item: RegisterDefinition): number[] {
+  const stored = store.state.server.dictionaryRegisters[String(item.address)]
+  if (stored) return Array.from({ length: Math.max(1, item.length) }, (_, index) => stored[index] ?? 0)
+  return Array.from({ length: Math.max(1, item.length) }, () => 0)
+}
 
 /**
  * @brief 启动或停止真实 Modbus Server。
  *
- * 启动时提交协议参数和四区初始数据，停止时关闭主进程中的监听服务。
+ * 启动时只提交寄存器字典中存在的地址和值，停止时关闭主进程监听服务。
  */
 async function toggleServer(): Promise<void> {
   try {
@@ -66,70 +61,121 @@ async function toggleServer(): Promise<void> {
 }
 
 /**
- * @brief 收集四区初始数据。
+ * @brief 收集字典定义的 Server 初始数据。
  *
- * 将页面中的每行值转换为主进程 Server 使用的零基地址更新数组。
- * @returns 所有 Server 数据更新。
+ * 将每个字典项按长度展开为主进程可识别的数据区和零基地址更新数组。
+ * @returns Server 初始数据更新数组。
  */
 function collectServerData(): ServerDataUpdate[] {
-  return (Object.keys(areas.value) as ServerAreaName[]).flatMap((area) => areas.value[area].map((row) => ({ area, address: row.protocolAddress, value: row.value })))
+  return store.state.dictionary.flatMap((item) => {
+    const addressInfo = resolveRegisterAddress(item.address)
+    if (!addressInfo) return []
+    return getServerValues(item).map((value, index) => ({ area: addressInfo.area, address: addressInfo.protocolAddress + index, value }))
+  })
 }
 
 /**
- * @brief 同步界面编辑值到主进程 Server。
- *
- * 服务运行期间立即更新对应数据区，使后续外部主站读取获得最新值。
- * @param area 数据区名称。
- * @param row 被编辑的数据行。
+ * @brief 获取 Server 单元格当前显示文本。
+ * @param row Server 表格行。
+ * @param field 编辑字段。
+ * @returns 编辑缓存或当前 Server 值。
  */
-async function syncRow(area: ServerAreaName, row: ServerRow): Promise<void> {
-  if (running.value) await window.modbusApi.server.updateData({ area, address: row.protocolAddress, value: row.value })
+function getCellValue(row: typeof activeRows.value[number], field: EditableField): string {
+  return editValues[`${row.item.address}:${field}`] ?? row[field]
+}
+
+/**
+ * @brief 更新 Server 单元格编辑缓存。
+ * @param item 字典条目。
+ * @param field 编辑字段。
+ * @param value 输入文本。
+ */
+function updateCellValue(item: RegisterDefinition, field: EditableField, value: string): void {
+  editValues[`${item.address}:${field}`] = value
+}
+
+/**
+ * @brief 将 Server 十六进制文本编码为原始值。
+ * @param item 字典条目。
+ * @param text 十六进制输入文本。
+ * @returns 与字典长度一致的原始值数组。
+ */
+function encodeHex(item: RegisterDefinition, text: string): number[] {
+  const compact = text.replace(/0x/gi, '').replace(/[^0-9a-f]/gi, '')
+  if (!compact || compact.length % 4 !== 0) throw new Error('HEX 值应按每个寄存器四位十六进制输入')
+  const values = compact.match(/.{4}/g)?.map((value) => Number.parseInt(value, 16)) ?? []
+  if (values.length !== Math.max(1, item.length)) throw new Error(`需要输入 ${Math.max(1, item.length)} 个原始值`)
+  return values
+}
+
+/**
+ * @brief 提交 Server 字典项编辑值。
+ *
+ * 保存到 Vuex 工程状态，并在服务运行时逐地址同步到主进程数据区。
+ * @param item 字典条目。
+ * @param field 编辑字段。
+ */
+async function commitCell(item: RegisterDefinition, field: EditableField): Promise<void> {
+  const key = `${item.address}:${field}`
+  if (!(key in editValues)) return
+  try {
+    const addressInfo = resolveRegisterAddress(item.address)
+    if (!addressInfo) throw new Error('字典地址不属于有效 Modbus 数据区')
+    const values = field === 'hex' ? encodeHex(item, editValues[key]) : encodeRegisterValue(item, editValues[key])
+    if (values.length !== Math.max(1, item.length)) throw new Error(`数据类型需要 ${values.length} 个值，但字典长度配置为 ${item.length}`)
+    store.commit('setServerDictionaryRegisters', { key: String(item.address), values })
+    if (running.value) {
+      await Promise.all(values.map((value, index) => window.modbusApi.server.updateData({ area: addressInfo.area, address: addressInfo.protocolAddress + index, value })))
+    }
+    delete editValues[key]
+  } catch (error) {
+    ElMessage.error((error as Error).message)
+  }
+}
+
+/**
+ * @brief 更新位数据区的开关值。
+ * @param item 字典条目。
+ * @param value 开关值。
+ */
+async function updateBitValue(item: RegisterDefinition, value: string | number | boolean): Promise<void> {
+  const addressInfo = resolveRegisterAddress(item.address)
+  if (!addressInfo) return
+  const values = [value ? 1 : 0]
+  store.commit('setServerDictionaryRegisters', { key: String(item.address), values })
+  if (running.value) await window.modbusApi.server.updateData({ area: addressInfo.area, address: addressInfo.protocolAddress, value: values[0] })
 }
 
 /**
  * @brief 处理主进程 Server 事件。
  *
- * 同步运行状态、外部主站写入值和报文日志，并累计请求次数。
- * @param event Server 事件。
+ * 将外部主站写入映射回覆盖该地址的字典项，同时记录日志和累计请求计数。
+ * @param event Server 状态、数据或日志事件。
  */
 function handleServerEvent(event: ServerEvent): void {
   if (event.type === 'status') running.value = Boolean(event.running)
   if (event.type === 'data' && event.update) {
-    const row = areas.value[event.update.area].find((item) => item.protocolAddress === event.update?.address)
-    if (row) row.value = event.update.value
+    const update = event.update
+    const item = store.state.dictionary.find((candidate) => {
+      const info = resolveRegisterAddress(candidate.address)
+      return info?.area === update.area && update.address >= info.protocolAddress && update.address < info.protocolAddress + Math.max(1, candidate.length)
+    })
+    if (item) {
+      const info = resolveRegisterAddress(item.address)!
+      const values = getServerValues(item)
+      values[update.address - info.protocolAddress] = update.value
+      store.commit('setServerDictionaryRegisters', { key: String(item.address), values })
+    }
   }
   if (event.type === 'log' && event.log) {
     store.commit('addLog', event.log)
-    if (event.log.direction === 'RX') requestCount.value += 1
+    if (event.log.direction === 'RX') store.commit('incrementServerRequestCount')
   }
-}
-
-/**
- * @brief 将寄存器值格式化为四位十六进制。
- *
- * 对数值截取低 16 位并补齐四位，便于寄存器表查看原始数据。
- * @param value 寄存器无符号值。
- * @returns 四位大写十六进制文本。
- */
-function formatHex(value: number): string {
-  return (value & 0xffff).toString(16).padStart(4, '0').toUpperCase()
-}
-
-/**
- * @brief 将无符号 16 位值转换为有符号值。
- *
- * 当最高位为 1 时减去 65536，得到 INT16 对应的负数表示。
- * @param value 无符号 16 位值。
- * @returns 有符号 16 位值。
- */
-function toInt16(value: number): number {
-  return value > 0x7fff ? value - 0x10000 : value
 }
 
 onMounted(() => {
   if (window.modbusApi) removeServerListener = window.modbusApi.server.onEvent(handleServerEvent)
 })
-
 onBeforeUnmount(() => removeServerListener?.())
 </script>
 
@@ -152,8 +198,8 @@ onBeforeUnmount(() => removeServerListener?.())
       </section>
       <section class="panel server-state">
         <h3>服务状态</h3><p><i :class="{ online: running }" />{{ running ? `${store.state.server.protocol} 服务运行中` : '未运行' }}</p>
-        <div class="server-stat"><span>请求计数</span><strong>{{ requestCount }}</strong></div>
-        <div class="server-stat"><span>数据点数</span><strong>400</strong></div>
+        <div class="server-stat"><span>请求计数</span><strong>{{ store.state.server.requestCount }}</strong></div>
+        <div class="server-stat"><span>字典数据点</span><strong>{{ serverPointCount }}</strong></div>
       </section>
     </aside>
     <section class="content-column">
@@ -161,15 +207,15 @@ onBeforeUnmount(() => removeServerListener?.())
         <el-tabs v-model="activeArea">
           <el-tab-pane label="线圈 (0xxxx)" name="coil" /><el-tab-pane label="离散输入 (1xxxx)" name="discrete" /><el-tab-pane label="输入寄存器 (3xxxx)" name="input" /><el-tab-pane label="保持寄存器 (4xxxx)" name="holding" />
         </el-tabs>
-        <el-table :data="activeRows" height="calc(100% - 55px)" stripe>
-          <el-table-column prop="address" label="地址" width="120" />
-          <el-table-column v-if="isBitArea" label="当前状态" min-width="150"><template #default="scope"><el-switch v-model="scope.row.value" :active-value="1" :inactive-value="0" @change="syncRow(activeArea, scope.row)" /></template></el-table-column>
-          <el-table-column v-if="isBitArea" label="布尔值" min-width="120"><template #default="scope">{{ scope.row.value ? 'ON / 1' : 'OFF / 0' }}</template></el-table-column>
-          <el-table-column v-if="!isBitArea" label="当前值(HEX)" min-width="130"><template #default="scope">{{ formatHex(scope.row.value) }}</template></el-table-column>
-          <el-table-column v-if="!isBitArea" label="UINT16" min-width="160"><template #default="scope"><el-input-number v-model="scope.row.value" :min="0" :max="65535" size="small" @change="syncRow(activeArea, scope.row)" /></template></el-table-column>
-          <el-table-column v-if="!isBitArea" label="INT16" min-width="120"><template #default="scope">{{ toInt16(scope.row.value) }}</template></el-table-column>
-          <el-table-column label="主站权限" width="110"><template #default="scope"><el-tag :type="scope.row.writable ? 'success' : 'info'">{{ scope.row.writable ? '可写' : '只读' }}</el-tag></template></el-table-column>
-          <el-table-column label="备注" min-width="220"><template #default="scope"><el-input v-model="scope.row.remark" placeholder="输入备注" clearable /></template></el-table-column>
+        <el-table :data="activeRows" height="calc(100% - 55px)" stripe empty-text="寄存器字典中没有该数据区的地址">
+          <el-table-column label="地址" width="100"><template #default="scope">{{ scope.row.item.address }}</template></el-table-column>
+          <el-table-column label="名称" min-width="150"><template #default="scope"><strong>{{ scope.row.item.name }}</strong><small class="cell-meta">{{ scope.row.item.dataType }} / 长度 {{ scope.row.item.length }}</small></template></el-table-column>
+          <el-table-column v-if="isBitArea" label="当前状态" min-width="150"><template #default="scope"><el-switch :model-value="Boolean(scope.row.values[0])" @change="updateBitValue(scope.row.item, $event)" /></template></el-table-column>
+          <el-table-column v-if="!isBitArea" label="原始值 HEX" min-width="190"><template #default="scope"><el-input :model-value="getCellValue(scope.row, 'hex')" size="small" @update:model-value="updateCellValue(scope.row.item, 'hex', $event)" @change="commitCell(scope.row.item, 'hex')" /></template></el-table-column>
+          <el-table-column v-if="!isBitArea" label="解析值" min-width="170"><template #default="scope"><el-input :model-value="getCellValue(scope.row, 'parsed')" size="small" @update:model-value="updateCellValue(scope.row.item, 'parsed', $event)" @change="commitCell(scope.row.item, 'parsed')" /></template></el-table-column>
+          <el-table-column label="倍率/单位" min-width="125"><template #default="scope">×{{ scope.row.item.factor }} {{ scope.row.item.unit }}</template></el-table-column>
+          <el-table-column label="权限" width="80"><template #default="scope"><el-tag :type="scope.row.item.access === 'R' ? 'info' : 'success'">{{ scope.row.item.access }}</el-tag></template></el-table-column>
+          <el-table-column label="备注" min-width="180"><template #default="scope">{{ scope.row.item.remark }}</template></el-table-column>
         </el-table>
       </section>
     </section>

@@ -98,6 +98,21 @@ export interface ProjectData {
   }
   client: ReadRegistersParams & { pollInterval: number }
   registerDictionary: RegisterDefinition[]
+  clientData?: {
+    dictionaryRegisters: Record<string, number[]>
+    lastElapsedMs: number
+  }
+  serverData?: {
+    dictionaryRegisters: Record<string, number[]>
+    requestCount: number
+  }
+  packetLogs?: PacketLogItem[]
+}
+
+export interface RecentProject {
+  path: string
+  name: string
+  openedAt: string
 }
 
 export interface RegisterDefinition {
@@ -140,6 +155,9 @@ export interface ModbusApi {
   }
   project: {
     open: () => Promise<{ path: string; data: ProjectData } | null>
-    save: (data: ProjectData, path?: string) => Promise<string | null>
+    openPath: (path: string) => Promise<{ path: string; data: ProjectData }>
+    save: (data: ProjectData, path?: string, saveAs?: boolean) => Promise<string | null>
+    listRecent: () => Promise<RecentProject[]>
+    removeRecent: (path: string) => Promise<RecentProject[]>
   }
 }
