@@ -19,7 +19,7 @@ export interface TcpConfig {
 export interface ReadRegistersParams {
   protocol?: ProtocolMode
   slaveId: number
-  functionCode: 3 | 4
+  functionCode: 1 | 2 | 3 | 4
   startAddress: number
   quantity: number
   timeout: number
@@ -28,6 +28,7 @@ export interface ReadRegistersParams {
 export interface WriteRegisterParams {
   protocol?: ProtocolMode
   slaveId: number
+  functionCode?: 5 | 6
   address: number
   value: number
   timeout: number
@@ -36,6 +37,7 @@ export interface WriteRegisterParams {
 export interface WriteMultipleRegistersParams {
   protocol?: ProtocolMode
   slaveId: number
+  functionCode?: 15 | 16
   startAddress: number
   values: number[]
   timeout: number

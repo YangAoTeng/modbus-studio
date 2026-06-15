@@ -1,5 +1,6 @@
 import { createStore } from 'vuex'
 import type { PacketLogItem, ProjectData, ProtocolMode, RecentProject, RegisterDefinition, SerialConfig, TcpConfig } from '../../shared/types'
+import { resolveRegisterAddress } from '../utils/register-data'
 
 export interface RootState {
   protocol: ProtocolMode
@@ -27,6 +28,7 @@ export interface RootState {
     reading: boolean
     registers: number[]
     dictionaryRegisters: Record<string, number[]>
+    dictionaryErrors: Record<string, string>
     lastElapsedMs: number
   }
   logs: PacketLogItem[]
@@ -64,19 +66,32 @@ function createDefaultDictionary(): RegisterDefinition[] {
  * 表示一次连续地址范围 Modbus 读取所覆盖的多个字典条目及各自在响应中的偏移量。
  */
 interface ReadGroup {
-  functionCode: 3 | 4
+  functionCode: 1 | 2 | 3 | 4
   startAddress: number
   quantity: number
   items: { item: RegisterDefinition; offset: number }[]
 }
 
+/** @brief 地址范围 → 功能码映射表。 */
+const ADDRESS_FC_MAP: { min: number; max: number; functionCode: 1 | 2 | 3 | 4; baseAddress: number }[] = [
+  { min: 1, max: 9999, functionCode: 1, baseAddress: 1 },
+  { min: 10001, max: 19999, functionCode: 2, baseAddress: 10001 },
+  { min: 30001, max: 39999, functionCode: 4, baseAddress: 30001 },
+  { min: 40001, max: 49999, functionCode: 3, baseAddress: 40001 }
+]
+
 /**
- * @brief 将可读字典条目按连续地址分组。
- *
- * 按地址升序排列，当相邻条目地址连续（前一条 address + length === 后一条 address）
- * 且功能码相同时归入同一组，以减少 Modbus 读取次数。
- * @param items 已过滤的可读条目。
- * @returns 按连续地址合并的读取计划。
+ * @brief 获取地址对应的功能码和协议地址。
+ */
+function getAddressInfo(address: number): { functionCode: 1 | 2 | 3 | 4; protocolAddress: number } | null {
+  for (const entry of ADDRESS_FC_MAP) {
+    if (address >= entry.min && address <= entry.max) return { functionCode: entry.functionCode, protocolAddress: address - entry.baseAddress }
+  }
+  return null
+}
+
+/**
+ * @brief 将可读字典条目按连续地址分组（支持全部四区）。
  */
 function groupConsecutiveItems(items: RegisterDefinition[]): ReadGroup[] {
   if (items.length === 0) return []
@@ -84,15 +99,14 @@ function groupConsecutiveItems(items: RegisterDefinition[]): ReadGroup[] {
   const groups: ReadGroup[] = []
   let current: ReadGroup | null = null
   for (const item of sorted) {
-    const functionCode: 3 | 4 = item.address >= 40001 ? 3 : 4
-    const baseAddress = functionCode === 3 ? 40001 : 30001
-    const protocolAddress = item.address - baseAddress
-    if (current && current.functionCode === functionCode && current.startAddress + current.quantity === protocolAddress) {
+    const info = getAddressInfo(item.address)
+    if (!info) continue
+    if (current && current.functionCode === info.functionCode && current.startAddress + current.quantity === info.protocolAddress) {
       const offset = current.quantity
       current.quantity += item.length
       current.items.push({ item, offset })
     } else {
-      current = { functionCode, startAddress: protocolAddress, quantity: item.length, items: [{ item, offset: 0 }] }
+      current = { functionCode: info.functionCode, startAddress: info.protocolAddress, quantity: item.length, items: [{ item, offset: 0 }] }
       groups.push(current)
     }
   }
@@ -108,7 +122,7 @@ const store = createStore<RootState>({
     connection: { path: 'COM3', baudRate: 115200, dataBits: 8, stopBits: 1, parity: 'none', timeout: 1000 },
     tcp: { host: '127.0.0.1', port: 502, timeout: 1000 },
     server: { protocol: 'TCP', slaveId: 1, tcpHost: '0.0.0.0', tcpPort: 502, dictionaryRegisters: {}, requestCount: 0 },
-    client: { slaveId: 1, functionCode: 3, startAddress: 0, quantity: 10, pollInterval: 1000, polling: false, mergeRead: false, reading: false, registers: [], dictionaryRegisters: {}, lastElapsedMs: 0 },
+    client: { slaveId: 1, functionCode: 3, startAddress: 0, quantity: 10, pollInterval: 1000, polling: false, mergeRead: false, reading: false, registers: [], dictionaryRegisters: {}, dictionaryErrors: {}, lastElapsedMs: 0 },
     logs: [],
     dictionary: createDefaultDictionary(),
     project: { path: '', name: '未命名工程', description: '', version: '1.1.0', dirty: false },
@@ -129,6 +143,15 @@ const store = createStore<RootState>({
     setDictionaryRegisters(state, payload: { key: string; values: number[]; elapsedMs: number }) {
       state.client.dictionaryRegisters = { ...state.client.dictionaryRegisters, [payload.key]: payload.values }
       state.client.lastElapsedMs = payload.elapsedMs
+    },
+    setDictionaryError(state, payload: { key: string; error: string }) {
+      if (payload.error) {
+        state.client.dictionaryErrors = { ...state.client.dictionaryErrors, [payload.key]: payload.error }
+      } else {
+        const next = { ...state.client.dictionaryErrors }
+        delete next[payload.key]
+        state.client.dictionaryErrors = next
+      }
     },
     setServerDictionaryRegisters(state, payload: { key: string; values: number[] }) {
       state.server.dictionaryRegisters = { ...state.server.dictionaryRegisters, [payload.key]: payload.values }
@@ -165,7 +188,7 @@ const store = createStore<RootState>({
       Object.assign(state.connection, { path: 'COM3', baudRate: 115200, dataBits: 8, stopBits: 1, parity: 'none', timeout: 1000 })
       Object.assign(state.tcp, { host: '127.0.0.1', port: 502, timeout: 1000 })
       Object.assign(state.server, { protocol: 'TCP', slaveId: 1, tcpHost: '0.0.0.0', tcpPort: 502, dictionaryRegisters: {}, requestCount: 0 })
-      Object.assign(state.client, { slaveId: 1, functionCode: 3, startAddress: 0, quantity: 10, pollInterval: 1000, polling: false, mergeRead: false, reading: false, registers: [], dictionaryRegisters: {}, lastElapsedMs: 0 })
+      Object.assign(state.client, { slaveId: 1, functionCode: 3, startAddress: 0, quantity: 10, pollInterval: 1000, polling: false, mergeRead: false, reading: false, registers: [], dictionaryRegisters: {}, dictionaryErrors: {}, lastElapsedMs: 0 })
       state.logs = []
       state.dictionary = []
       state.project = { path: '', name: '未命名工程', description: '', version: '1.1.0', dirty: false }
@@ -239,6 +262,8 @@ const store = createStore<RootState>({
           lastPollError = ''
         } catch (error) {
           const message = (error as Error).message
+          const time = new Date().toLocaleTimeString('zh-CN', { hour12: false })
+          commit('addLog', { time, direction: 'RX', protocol: state.protocol, raw: '-', parsed: `轮询异常：${message}`, elapsedMs: 0, status: '失败' })
           if (message !== lastPollError) {
             const { ElMessage } = await import('element-plus')
             ElMessage.error(`字典轮询失败：${message}`)
@@ -319,52 +344,68 @@ const store = createStore<RootState>({
       commit('setRegisters', { values: result.registers, elapsedMs: result.elapsedMs })
     },
     /**
-     * @brief 按寄存器字典执行一轮读取。
+     * @brief 按寄存器字典执行一轮读取（全部四区）。
      *
-     * 仅读取权限为 R 或 RW 的 3xxxx、4xxxx 条目。
-     * 开启合并读取时，将地址连续的条目合并为一次 Modbus 读取以减少通信次数。
+     * 自动根据地址范围选择 FC01～04，线圈和离散输入返回 0/1 位值。
      */
     async readDictionary({ commit, state }) {
-      const readableItems = state.dictionary.filter((item) => item.access !== 'W' && ((item.address >= 30001 && item.address <= 39999) || (item.address >= 40001 && item.address <= 49999)))
+      const readableItems = state.dictionary.filter((item) => {
+        if (item.access === 'W') return false
+        return getAddressInfo(item.address) !== null
+      })
       if (readableItems.length === 0) return
       const timeout = state.protocol === 'TCP' ? state.tcp.timeout : state.connection.timeout
 
       if (state.client.mergeRead) {
         const groups = groupConsecutiveItems(readableItems)
         for (const group of groups) {
-          const result = await window.modbusApi.client.readRegisters({
-            protocol: state.protocol,
-            slaveId: state.client.slaveId,
-            functionCode: group.functionCode,
-            startAddress: group.startAddress,
-            quantity: group.quantity,
-            timeout
-          })
           const time = new Date().toLocaleTimeString('zh-CN', { hour12: false })
           const fc = group.functionCode.toString().padStart(2, '0')
-          commit('addLog', { time, direction: 'TX', protocol: state.protocol, raw: result.tx, parsed: `合并读取 FC${fc}，起始地址 ${group.startAddress}，数量 ${group.quantity}（${group.items.length} 个字典项）`, elapsedMs: 0, status: '发送' })
-          commit('addLog', { time, direction: 'RX', protocol: state.protocol, raw: result.rx, parsed: `合并读取成功，收到 ${result.registers.length} 个寄存器`, elapsedMs: result.elapsedMs, status: '成功' })
-          for (const { item, offset } of group.items) {
-            commit('setDictionaryRegisters', { key: String(item.address), values: result.registers.slice(offset, offset + item.length), elapsedMs: result.elapsedMs })
+          const label = group.functionCode <= 2 ? '位' : '寄存器'
+          try {
+            const result = await window.modbusApi.client.readRegisters({
+              protocol: state.protocol,
+              slaveId: state.client.slaveId,
+              functionCode: group.functionCode,
+              startAddress: group.startAddress,
+              quantity: group.quantity,
+              timeout
+            })
+            commit('addLog', { time, direction: 'TX', protocol: state.protocol, raw: result.tx, parsed: `合并读取 FC${fc}，起始地址 ${group.startAddress}，数量 ${group.quantity}（${group.items.length} 个字典项）`, elapsedMs: 0, status: '发送' })
+            commit('addLog', { time, direction: 'RX', protocol: state.protocol, raw: result.rx, parsed: `合并读取成功，收到 ${result.registers.length} 个${label}`, elapsedMs: result.elapsedMs, status: '成功' })
+            for (const { item, offset } of group.items) {
+              commit('setDictionaryRegisters', { key: String(item.address), values: result.registers.slice(offset, offset + item.length), elapsedMs: result.elapsedMs })
+              commit('setDictionaryError', { key: String(item.address), error: '' })
+            }
+          } catch (error) {
+            const message = (error as Error).message
+            commit('addLog', { time, direction: 'RX', protocol: state.protocol, raw: '-', parsed: `合并读取失败：${message}`, elapsedMs: 0, status: '失败' })
+            for (const { item } of group.items) commit('setDictionaryError', { key: String(item.address), error: message })
           }
         }
       } else {
         for (const item of readableItems) {
-          const functionCode: 3 | 4 = item.address >= 40001 ? 3 : 4
-          const baseAddress = functionCode === 3 ? 40001 : 30001
-          const protocolAddress = item.address - baseAddress
-          const result = await window.modbusApi.client.readRegisters({
-            protocol: state.protocol,
-            slaveId: state.client.slaveId,
-            functionCode,
-            startAddress: protocolAddress,
-            quantity: item.length,
-            timeout
-          })
+          const info = getAddressInfo(item.address)
+          if (!info) continue
           const time = new Date().toLocaleTimeString('zh-CN', { hour12: false })
-          commit('addLog', { time, direction: 'TX', protocol: state.protocol, raw: result.tx, parsed: `字典读取 ${item.name}，地址 ${item.address}，长度 ${item.length}`, elapsedMs: 0, status: '发送' })
-          commit('addLog', { time, direction: 'RX', protocol: state.protocol, raw: result.rx, parsed: `${item.name} 读取成功`, elapsedMs: result.elapsedMs, status: '成功' })
-          commit('setDictionaryRegisters', { key: String(item.address), values: result.registers, elapsedMs: result.elapsedMs })
+          try {
+            const result = await window.modbusApi.client.readRegisters({
+              protocol: state.protocol,
+              slaveId: state.client.slaveId,
+              functionCode: info.functionCode,
+              startAddress: info.protocolAddress,
+              quantity: item.length,
+              timeout
+            })
+            commit('addLog', { time, direction: 'TX', protocol: state.protocol, raw: result.tx, parsed: `字典读取 ${item.name}，地址 ${item.address}，长度 ${item.length}`, elapsedMs: 0, status: '发送' })
+            commit('addLog', { time, direction: 'RX', protocol: state.protocol, raw: result.rx, parsed: `${item.name} 读取成功`, elapsedMs: result.elapsedMs, status: '成功' })
+            commit('setDictionaryRegisters', { key: String(item.address), values: result.registers, elapsedMs: result.elapsedMs })
+            commit('setDictionaryError', { key: String(item.address), error: '' })
+          } catch (error) {
+            const message = (error as Error).message
+            commit('addLog', { time, direction: 'RX', protocol: state.protocol, raw: '-', parsed: `${item.name} 读取失败：${message}`, elapsedMs: 0, status: '失败' })
+            commit('setDictionaryError', { key: String(item.address), error: message })
+          }
         }
       }
     },
@@ -375,15 +416,22 @@ const store = createStore<RootState>({
      * @param context Vuex 动作上下文。
      * @param payload 写入地址和值数组。
      */
-    async writeRegisters({ commit, state }, payload: { address: number; values: number[] }) {
+    async writeRegisters({ commit, state }, payload: { address: number; values: number[]; isCoil?: boolean }) {
       const common = { protocol: state.protocol, slaveId: state.client.slaveId, timeout: state.protocol === 'TCP' ? state.tcp.timeout : state.connection.timeout }
-      const result = payload.values.length === 1
-        ? await window.modbusApi.client.writeSingleRegister({ ...common, address: payload.address, value: payload.values[0] })
-        : await window.modbusApi.client.writeMultipleRegisters({ ...common, startAddress: payload.address, values: payload.values })
+      const isCoil = payload.isCoil ?? false
       const time = new Date().toLocaleTimeString('zh-CN', { hour12: false })
-      const code = payload.values.length === 1 ? '06' : '16'
-      commit('addLog', { time, direction: 'TX', protocol: state.protocol, raw: result.tx, parsed: `${code} 写保持寄存器，起始地址 ${payload.address}，数量 ${payload.values.length}`, elapsedMs: 0, status: '发送' })
-      commit('addLog', { time, direction: 'RX', protocol: state.protocol, raw: result.rx, parsed: '写入成功', elapsedMs: result.elapsedMs, status: '成功' })
+      const code = payload.values.length === 1 ? (isCoil ? '05' : '06') : (isCoil ? '0F' : '10')
+      const target = isCoil ? '线圈' : '保持寄存器'
+      try {
+        const result = payload.values.length === 1
+          ? await window.modbusApi.client.writeSingleRegister({ ...common, functionCode: isCoil ? 5 : 6, address: payload.address, value: payload.values[0] })
+          : await window.modbusApi.client.writeMultipleRegisters({ ...common, functionCode: isCoil ? 15 : 16, startAddress: payload.address, values: payload.values })
+        commit('addLog', { time, direction: 'TX', protocol: state.protocol, raw: result.tx, parsed: `FC${code} 写${target}，起始地址 ${payload.address}，数量 ${payload.values.length}`, elapsedMs: 0, status: '发送' })
+        commit('addLog', { time, direction: 'RX', protocol: state.protocol, raw: result.rx, parsed: '写入成功', elapsedMs: result.elapsedMs, status: '成功' })
+      } catch (error) {
+        commit('addLog', { time, direction: 'TX', protocol: state.protocol, raw: '-', parsed: `FC${code} 写${target}失败：${(error as Error).message}`, elapsedMs: 0, status: '失败' })
+        throw error
+      }
     },
     /**
      * @brief 打开工程文件并载入状态。

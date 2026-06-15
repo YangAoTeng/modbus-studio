@@ -2,5 +2,13 @@ node_modules/
 dist/
 dist-electron/
 release/
+release-*/
 *.log
 *.mbs
+*.exe
+*.7z
+*.zip
+*.tmp
+.env
+.env.*
+!.env.example

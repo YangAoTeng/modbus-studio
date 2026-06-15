@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import { Close, Connection, DataAnalysis, Document, Files, FullScreen, Minus, Monitor, Setting } from '@element-plus/icons-vue'
 
 const maximized = ref(false)
+const aboutVisible = ref(false)
 const navigation = [
   { path: '/client', label: 'Client', icon: Connection },
   { path: '/server', label: 'Server', icon: Monitor },
@@ -11,32 +12,9 @@ const navigation = [
   { path: '/project', label: '工程管理', icon: Files }
 ]
 
-/**
- * @brief 最小化当前桌面窗口。
- *
- * 通过 Preload 暴露的安全接口请求主进程执行最小化，浏览器预览环境下不执行操作。
- */
-async function minimizeWindow(): Promise<void> {
-  await window.modbusApi?.window.minimize()
-}
-
-/**
- * @brief 切换窗口最大化和还原状态。
- *
- * 调用主进程切换窗口状态，并保存返回状态用于更新按钮提示。
- */
-async function toggleMaximizeWindow(): Promise<void> {
-  if (window.modbusApi) maximized.value = await window.modbusApi.window.toggleMaximize()
-}
-
-/**
- * @brief 关闭当前桌面窗口。
- *
- * 通过主进程关闭窗口，确保 Electron 按正常生命周期退出。
- */
-async function closeWindow(): Promise<void> {
-  await window.modbusApi?.window.close()
-}
+async function minimizeWindow(): Promise<void> { await window.modbusApi?.window.minimize() }
+async function toggleMaximizeWindow(): Promise<void> { if (window.modbusApi) maximized.value = await window.modbusApi.window.toggleMaximize() }
+async function closeWindow(): Promise<void> { await window.modbusApi?.window.close() }
 </script>
 
 <template>
@@ -49,13 +27,28 @@ async function closeWindow(): Promise<void> {
         </RouterLink>
       </nav>
       <div class="top-actions">
-        <button class="title-button setting-button" title="设置"><el-icon><Setting /></el-icon></button>
+        <button class="title-button setting-button" title="关于作者" @click="aboutVisible = true"><el-icon><Setting /></el-icon></button>
         <button class="title-button" title="最小化" @click="minimizeWindow"><el-icon><Minus /></el-icon></button>
         <button class="title-button" :title="maximized ? '还原' : '最大化'" @click="toggleMaximizeWindow"><el-icon><FullScreen /></el-icon></button>
         <button class="title-button close-button" title="关闭" @click="closeWindow"><el-icon><Close /></el-icon></button>
       </div>
     </header>
     <main class="main-stage"><RouterView /></main>
-    <footer class="statusbar">Modbus Studio v1.1.0</footer>
+    <footer class="statusbar">Modbus Studio v1.1.3</footer>
+
+    <el-dialog v-model="aboutVisible" title="关于作者" width="480px" align-center>
+      <div class="about-content">
+        <div class="about-info">
+          <div class="about-row"><label>作者</label><span>PlayerPencil</span></div>
+          <div class="about-row"><label>微信</label><span>PlayerPencil</span></div>
+          <div class="about-row"><label>邮件</label><span>yangaoteng1996@gmail.com</span></div>
+          <div class="about-row"><label>公众号</label><span>杨工的碎碎念</span></div>
+        </div>
+        <div class="about-qrcode">
+          <img src="/qrcode-mp.jpg" alt="微信公众号二维码" />
+          <small>扫码关注公众号</small>
+        </div>
+      </div>
+    </el-dialog>
   </div>
 </template>

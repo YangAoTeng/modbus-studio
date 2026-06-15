@@ -4,7 +4,7 @@ import { useStore } from 'vuex'
 import { ElMessage } from 'element-plus'
 import type { RootState } from '../store'
 import type { RegisterDefinition } from '../../shared/types'
-import { decodeRegisterValue, encodeRegisterValue, formatRegisterHex } from '../utils/register-data'
+import { decodeRegisterValue, encodeRegisterValue, formatRegisterHex, resolveRegisterAddress } from '../utils/register-data'
 import ConnectionPanel from '../components/ConnectionPanel.vue'
 
 type EditableField = 'hex' | 'parsed'
@@ -18,19 +18,23 @@ const rows = computed(() => store.state.dictionary.map((item) => {
 }))
 
 /**
- * @brief 判断地址是否属于保持寄存器区。
- * @param address 字典显示地址。
- * @returns 属于 4xxxx 区时返回 true。
+ * @brief 判断字典条目是否为位区（线圈或离散输入）。
+ * @param address 显示地址。
  */
-function isHoldingAddress(address: number): boolean {
-  return address >= 40001 && address <= 49999
+function isBitItem(address: number): boolean {
+  return (address >= 1 && address <= 9999) || (address >= 10001 && address <= 19999)
+}
+
+/**
+ * @brief 判断字典条目是否为线圈区（可写位区）。
+ * @param address 显示地址。
+ */
+function isCoilAddress(address: number): boolean {
+  return address >= 1 && address <= 9999
 }
 
 /**
  * @brief 获取单元格当前显示文本。
- * @param row 当前表格行。
- * @param field 编辑字段。
- * @returns 编辑缓存或最近一次读取值。
  */
 function getCellValue(row: typeof rows.value[number], field: EditableField): string {
   return editValues[`${row.item.address}:${field}`] ?? row[field]
@@ -38,9 +42,6 @@ function getCellValue(row: typeof rows.value[number], field: EditableField): str
 
 /**
  * @brief 更新单元格编辑缓存。
- * @param item 字典条目。
- * @param field 编辑字段。
- * @param value 输入文本。
  */
 function updateCellValue(item: RegisterDefinition, field: EditableField, value: string): void {
   editValues[`${item.address}:${field}`] = value
@@ -48,11 +49,6 @@ function updateCellValue(item: RegisterDefinition, field: EditableField, value: 
 
 /**
  * @brief 将十六进制文本编码为寄存器数组。
- *
- * 严格按照字典长度校验，每个 16 位寄存器要求四位十六进制字符。
- * @param item 字典条目。
- * @param text 十六进制输入文本。
- * @returns 待写入寄存器数组。
  */
 function encodeHex(item: RegisterDefinition, text: string): number[] {
   const compact = text.replace(/0x/gi, '').replace(/[^0-9a-f]/gi, '')
@@ -63,29 +59,44 @@ function encodeHex(item: RegisterDefinition, text: string): number[] {
 }
 
 /**
- * @brief 提交可写字典项并立即写入设备。
- *
- * 暂停全局轮询、等待进行中的请求完成，写入后自动恢复轮询。
- * @param item 字典条目。
- * @param field 编辑字段。
+ * @brief 切换线圈开关状态。
+ */
+async function toggleBit(item: RegisterDefinition, newValue: boolean): Promise<void> {
+  if (!store.state.connected) { ElMessage.warning('请先连接设备'); return }
+  const info = resolveRegisterAddress(item.address)
+  if (!info) return
+  const wasPolling = store.state.connected && store.state.client.polling
+  if (wasPolling) { await store.dispatch('stopPolling'); await store.dispatch('waitForPollComplete') }
+  try {
+    const values = [newValue ? 1 : 0]
+    await store.dispatch('writeRegisters', { address: info.protocolAddress, values, isCoil: true })
+    store.commit('setDictionaryRegisters', { key: String(item.address), values, elapsedMs: store.state.client.lastElapsedMs })
+    ElMessage.success(`${item.name} → ${newValue ? 'ON' : 'OFF'}`)
+  } catch (error) {
+    ElMessage.error((error as Error).message)
+  } finally {
+    if (wasPolling && store.state.connected) await store.dispatch('startPolling')
+  }
+}
+
+/**
+ * @brief 提交可写字典项（寄存器写入）。
  */
 async function commitCell(item: RegisterDefinition, field: EditableField): Promise<void> {
   const key = `${item.address}:${field}`
   if (!(key in editValues)) return
   if (!store.state.connected) { ElMessage.warning('请先连接设备'); return }
-  if (!isEditable(item)) { ElMessage.warning('该字典项不可写'); delete editValues[key]; return }
+  if (!isRegisterEditable(item)) { ElMessage.warning('该字典项不可写'); delete editValues[key]; return }
+  const info = resolveRegisterAddress(item.address)
+  if (!info) return
 
-  // 暂停全局轮询并等待进行中的请求完成，写入后恢复
   const wasPolling = store.state.connected && store.state.client.polling
-  if (wasPolling) {
-    await store.dispatch('stopPolling')
-    await store.dispatch('waitForPollComplete')
-  }
+  if (wasPolling) { await store.dispatch('stopPolling'); await store.dispatch('waitForPollComplete') }
 
   try {
     const values = field === 'hex' ? encodeHex(item, editValues[key]) : encodeRegisterValue(item, editValues[key])
     if (values.length !== item.length) throw new Error(`数据类型需要 ${values.length} 个寄存器，但字典长度配置为 ${item.length}`)
-    await store.dispatch('writeRegisters', { address: item.address - 40001, values })
+    await store.dispatch('writeRegisters', { address: info.protocolAddress, values, isCoil: false })
     store.commit('setDictionaryRegisters', { key: String(item.address), values, elapsedMs: store.state.client.lastElapsedMs })
     delete editValues[key]
     ElMessage.success(`${item.name} 已写入`)
@@ -97,12 +108,24 @@ async function commitCell(item: RegisterDefinition, field: EditableField): Promi
 }
 
 /**
- * @brief 判断字典条目是否允许 Client 写入。
- * @param item 字典条目。
- * @returns W/RW 保持寄存器返回 true。
+ * @brief 判断寄存器条目是否可写（保持寄存器区，access W/RW）。
  */
-function isEditable(item: RegisterDefinition): boolean {
-  return item.access !== 'R' && isHoldingAddress(item.address)
+function isRegisterEditable(item: RegisterDefinition): boolean {
+  return item.access !== 'R' && item.address >= 40001 && item.address <= 49999
+}
+
+/**
+ * @brief 表格行类名回调，读取失败的行标红。
+ */
+function getRowClass({ row }: { row: typeof rows.value[number] }): string {
+  return store.state.client.dictionaryErrors[String(row.item.address)] ? 'row-read-error' : ''
+}
+
+/**
+ * @brief 判断线圈条目是否可写。
+ */
+function isCoilEditable(item: RegisterDefinition): boolean {
+  return item.access !== 'R' && isCoilAddress(item.address)
 }
 </script>
 
@@ -120,12 +143,33 @@ function isEditable(item: RegisterDefinition): boolean {
       </section>
       <section class="panel register-panel">
         <div class="panel-title"><h3>字典寄存器数据</h3><span>实际值 = 解析值 × 倍率，HEX 为设备原始发送数据；最近响应：{{ store.state.client.lastElapsedMs || '-' }} ms</span></div>
-        <el-table :data="rows" height="100%" stripe empty-text="寄存器字典为空，请先添加字典条目">
+        <el-table :data="rows" height="100%" stripe empty-text="寄存器字典为空，请先添加字典条目" :row-class-name="getRowClass">
           <el-table-column label="地址" width="90"><template #default="scope">{{ scope.row.item.address }}</template></el-table-column>
           <el-table-column label="名称" min-width="150"><template #default="scope"><strong>{{ scope.row.item.name }}</strong><small class="cell-meta">{{ scope.row.item.dataType }} / 长度 {{ scope.row.item.length }}</small></template></el-table-column>
-          <el-table-column label="原始值 HEX" min-width="190"><template #default="scope"><el-input v-if="isEditable(scope.row.item)" :model-value="getCellValue(scope.row, 'hex')" size="small" @update:model-value="updateCellValue(scope.row.item, 'hex', $event)" @change="commitCell(scope.row.item, 'hex')" /><span v-else>{{ scope.row.hex }}</span></template></el-table-column>
-          <el-table-column label="解析值" min-width="170"><template #default="scope"><el-input v-if="isEditable(scope.row.item)" :model-value="getCellValue(scope.row, 'parsed')" size="small" @update:model-value="updateCellValue(scope.row.item, 'parsed', $event)" @change="commitCell(scope.row.item, 'parsed')" /><strong v-else>{{ scope.row.parsed }}</strong></template></el-table-column>
-          <el-table-column label="倍率/单位" min-width="130"><template #default="scope">×{{ scope.row.item.factor }} {{ scope.row.item.unit }}</template></el-table-column>
+          <el-table-column label="原始值 / 状态" min-width="190">
+            <template #default="scope">
+              <template v-if="isBitItem(scope.row.item.address)">
+                <el-switch :model-value="Boolean(scope.row.values[0])" :disabled="!isCoilEditable(scope.row.item)" @change="toggleBit(scope.row.item, $event)" />
+                <small class="cell-meta">{{ scope.row.values[0] ? 'ON' : 'OFF' }}</small>
+              </template>
+              <template v-else>
+                <el-input v-if="isRegisterEditable(scope.row.item)" :model-value="getCellValue(scope.row, 'hex')" size="small" @update:model-value="updateCellValue(scope.row.item, 'hex', $event)" @change="commitCell(scope.row.item, 'hex')" />
+                <span v-else>{{ scope.row.hex }}</span>
+              </template>
+            </template>
+          </el-table-column>
+          <el-table-column label="解析值" min-width="170">
+            <template #default="scope">
+              <template v-if="isBitItem(scope.row.item.address)">
+                <el-tag size="small" :type="scope.row.values[0] ? 'success' : 'info'">{{ scope.row.values[0] ? 'ON' : 'OFF' }}</el-tag>
+              </template>
+              <template v-else>
+                <el-input v-if="isRegisterEditable(scope.row.item)" :model-value="getCellValue(scope.row, 'parsed')" size="small" @update:model-value="updateCellValue(scope.row.item, 'parsed', $event)" @change="commitCell(scope.row.item, 'parsed')" />
+                <strong v-else>{{ scope.row.parsed }}</strong>
+              </template>
+            </template>
+          </el-table-column>
+          <el-table-column label="倍率/单位" min-width="130"><template #default="scope"><template v-if="!isBitItem(scope.row.item.address)">×{{ scope.row.item.factor }} {{ scope.row.item.unit }}</template></template></el-table-column>
           <el-table-column label="权限" width="80"><template #default="scope"><el-tag size="small" :type="scope.row.item.access === 'R' ? 'info' : 'success'">{{ scope.row.item.access }}</el-tag></template></el-table-column>
           <el-table-column label="备注" min-width="180"><template #default="scope">{{ scope.row.item.remark }}</template></el-table-column>
         </el-table>

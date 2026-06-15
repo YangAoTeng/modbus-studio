@@ -106,6 +106,7 @@ button, input { font-family: inherit; }
 .card-grid article span { font-size: 12px; }
 .card-grid article small { color: #8994a5; font-size: 11px; text-align: center; }
 .el-table { --el-table-header-bg-color: #f6f8fb; --el-table-border-color: #e6eaf0; --el-table-row-hover-bg-color: #f1f6ff; font-size: 12px; }
+.row-read-error, .row-read-error:hover > td { color: #e63946 !important; }
 
 @media (max-width: 1200px) {
   .main-nav a { padding: 0 12px; }
@@ -124,3 +125,13 @@ button, input { font-family: inherit; }
   .side-column { display: grid; grid-template-columns: 1fr 1fr; }
   .page-table { min-height: 520px; }
 }
+
+/* 关于作者弹窗 */
+.about-content { display: flex; gap: 32px; align-items: flex-start; }
+.about-info { display: flex; flex-direction: column; gap: 14px; flex: 1; }
+.about-row { display: flex; flex-direction: column; gap: 2px; }
+.about-row label { color: #7b8798; font-size: 11px; }
+.about-row span { color: #1e293b; font-size: 14px; }
+.about-qrcode { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.about-qrcode img { width: 140px; height: 140px; border: 1px solid #e4e9f1; border-radius: 8px; object-fit: contain; }
+.about-qrcode small { color: #98a2b1; font-size: 11px; }

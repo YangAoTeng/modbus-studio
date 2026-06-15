@@ -78,6 +78,7 @@ function createWindow(): void {
     minHeight: 680,
     backgroundColor: '#f3f6fb',
     title: 'Modbus Studio',
+    icon: join(__dirname, '../../public/icon.ico'),
     frame: false,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),

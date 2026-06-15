@@ -28,7 +28,7 @@ export function buildTcpFrame(transactionId: number, unitId: number, pdu: Uint8A
  * @param quantity 读取数量。
  * @returns 完整 TCP 请求报文。
  */
-export function buildTcpReadFrame(transactionId: number, unitId: number, functionCode: 3 | 4, startAddress: number, quantity: number): Buffer {
+export function buildTcpReadFrame(transactionId: number, unitId: number, functionCode: 1 | 2 | 3 | 4, startAddress: number, quantity: number): Buffer {
   const pdu = Buffer.alloc(5)
   pdu[0] = functionCode
   pdu.writeUInt16BE(startAddress, 1)
@@ -75,6 +75,43 @@ export function buildTcpWriteMultipleFrame(transactionId: number, unitId: number
 }
 
 /**
+ * @brief 构造写单个线圈的 Modbus TCP 请求。
+ * @param transactionId 事务标识。
+ * @param unitId 单元标识。
+ * @param address 线圈地址。
+ * @param value 线圈值。
+ * @returns 完整 TCP 请求报文。
+ */
+export function buildTcpWriteSingleCoilFrame(transactionId: number, unitId: number, address: number, value: boolean): Buffer {
+  const pdu = Buffer.alloc(5)
+  pdu[0] = 0x05
+  pdu.writeUInt16BE(address, 1)
+  pdu.writeUInt16BE(value ? 0xff00 : 0x0000, 3)
+  return buildTcpFrame(transactionId, unitId, pdu)
+}
+
+/**
+ * @brief 构造写多个线圈的 Modbus TCP 请求。
+ * @param transactionId 事务标识。
+ * @param unitId 单元标识。
+ * @param startAddress 起始地址。
+ * @param values 线圈值数组。
+ * @returns 完整 TCP 请求报文。
+ */
+export function buildTcpWriteMultipleCoilsFrame(transactionId: number, unitId: number, startAddress: number, values: number[]): Buffer {
+  const byteCount = Math.ceil(values.length / 8)
+  const pdu = Buffer.alloc(7 + byteCount)
+  pdu[0] = 0x0f
+  pdu.writeUInt16BE(startAddress, 1)
+  pdu.writeUInt16BE(values.length, 3)
+  pdu[5] = byteCount
+  for (let i = 0; i < values.length; i += 1) {
+    if (values[i]) pdu[6 + Math.floor(i / 8)] |= 1 << (i % 8)
+  }
+  return buildTcpFrame(transactionId, unitId, pdu)
+}
+
+/**
  * @brief 解析 Modbus TCP 读取响应。
  *
  * 校验事务标识、协议标识、单元标识和功能码，然后提取 16 位寄存器数据。
@@ -84,14 +121,23 @@ export function buildTcpWriteMultipleFrame(transactionId: number, unitId: number
  * @param functionCode 期望功能码。
  * @returns 寄存器数组。
  */
-export function parseTcpReadResponse(frame: Buffer, transactionId: number, unitId: number, functionCode: 3 | 4): number[] {
+export function parseTcpReadResponse(frame: Buffer, transactionId: number, unitId: number, functionCode: 1 | 2 | 3 | 4, quantity: number): number[] {
   if (frame.length < 9 || frame.readUInt16BE(0) !== transactionId || frame.readUInt16BE(2) !== 0) throw new Error('Modbus TCP 响应头无效')
   if (frame[6] !== unitId) throw new Error('Modbus TCP 单元标识不匹配')
   if ((frame[7] & 0x80) !== 0) throw new Error(`从机返回异常码 0x${frame[8].toString(16).padStart(2, '0')}`)
   if (frame[7] !== functionCode) throw new Error('Modbus TCP 功能码不匹配')
   const byteCount = frame[8]
-  if (frame.length !== 9 + byteCount || byteCount % 2 !== 0) throw new Error('Modbus TCP 响应长度错误')
+  const expectedLength = 9 + byteCount
+  if (frame.length < expectedLength) throw new Error(`Modbus TCP 响应长度不足：期望 ${expectedLength} 字节，实际 ${frame.length} 字节`)
   const values: number[] = []
-  for (let offset = 0; offset < byteCount; offset += 2) values.push(frame.readUInt16BE(9 + offset))
+  if (functionCode === 1 || functionCode === 2) {
+    for (let i = 0; i < byteCount && values.length < quantity; i += 1) {
+      const byteVal = frame[9 + i]
+      for (let bit = 0; bit < 8 && values.length < quantity; bit += 1) values.push((byteVal >> bit) & 1)
+    }
+  } else {
+    if (byteCount % 2 !== 0) throw new Error('寄存器响应字节数必须为偶数')
+    for (let offset = 0; offset < byteCount; offset += 2) values.push(frame.readUInt16BE(9 + offset))
+  }
   return values
 }
