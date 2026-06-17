@@ -165,6 +165,21 @@ const store = createStore<RootState>({
     addDictionaryItem(state, item: RegisterDefinition) { state.dictionary.push(item); state.project.dirty = true },
     updateDictionaryItem(state, payload: { index: number; item: RegisterDefinition }) { state.dictionary.splice(payload.index, 1, payload.item); state.project.dirty = true },
     removeDictionaryItem(state, index: number) { state.dictionary.splice(index, 1); state.project.dirty = true },
+    moveDictionaryItemUp(state, index: number) {
+      if (index <= 0) return
+      const item = state.dictionary[index]
+      state.dictionary.splice(index, 1)
+      state.dictionary.splice(index - 1, 0, item)
+      state.project.dirty = true
+    },
+    moveDictionaryItemDown(state, index: number) {
+      if (index >= state.dictionary.length - 1) return
+      const item = state.dictionary[index]
+      state.dictionary.splice(index, 1)
+      state.dictionary.splice(index + 1, 0, item)
+      state.project.dirty = true
+    },
+    setDictionary(state, items: RegisterDefinition[]) { state.dictionary = items; state.project.dirty = true },
     applyProject(state, payload: { path: string; data: ProjectData }) {
       state.project = { path: payload.path, name: payload.data.name, description: payload.data.description, version: payload.data.version, dirty: false }
       state.protocol = payload.data.protocol ?? 'RTU'

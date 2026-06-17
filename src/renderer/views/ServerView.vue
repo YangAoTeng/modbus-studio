@@ -188,7 +188,7 @@ onBeforeUnmount(() => removeServerListener?.())
         <label>协议类型</label><el-select v-model="store.state.server.protocol" :disabled="running"><el-option label="Modbus RTU" value="RTU" /><el-option label="Modbus TCP" value="TCP" /></el-select>
         <template v-if="store.state.server.protocol === 'RTU'">
           <label>端口</label><el-select v-model="store.state.connection.path" :disabled="running"><el-option v-for="port in store.state.ports" :key="port" :label="port" :value="port" /></el-select>
-          <label>波特率</label><el-select v-model="store.state.connection.baudRate" :disabled="running"><el-option v-for="value in [9600, 19200, 38400, 57600, 115200]" :key="value" :label="value" :value="value" /></el-select>
+          <label>波特率</label><el-select v-model="store.state.connection.baudRate" :disabled="running"><el-option v-for="value in [1200, 2400, 4800, 9600, 14400, 19200, 38400, 56000, 57600, 115200, 128000, 230400, 256000, 460800, 921600]" :key="value" :label="value" :value="value" /></el-select>
         </template>
         <template v-else>
           <label>监听地址</label><el-input v-model="store.state.server.tcpHost" :disabled="running" />

@@ -48,6 +48,13 @@ const api: ModbusApi = {
     save: (data, path, saveAs) => ipcRenderer.invoke('project:save', toSerializable(data), path, saveAs),
     listRecent: () => ipcRenderer.invoke('project:list-recent'),
     removeRecent: (path) => ipcRenderer.invoke('project:remove-recent', path)
+  },
+  dictionary: {
+    export: (items) => ipcRenderer.invoke('dictionary:export', toSerializable(items)),
+    import: () => ipcRenderer.invoke('dictionary:import')
+  },
+  log: {
+    export: (items) => ipcRenderer.invoke('log:export', toSerializable(items))
   }
 }
 

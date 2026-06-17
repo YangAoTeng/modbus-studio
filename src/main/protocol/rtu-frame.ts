@@ -71,13 +71,13 @@ export function buildWriteMultipleFrame(slaveId: number, startAddress: number, v
  * @returns 解析后的值数组（线圈/离散为 0 或 1，寄存器为 16 位无符号整数）。
  */
 export function parseReadResponse(frame: Buffer, slaveId: number, functionCode: 1 | 2 | 3 | 4, quantity: number): number[] {
-  if (!verifyCrc(frame)) throw new Error('响应报文 CRC 校验失败')
-  if (frame[0] !== slaveId) throw new Error('响应从机地址不匹配')
-  if ((frame[1] & 0x80) !== 0) throw new Error(`从机返回异常码 0x${frame[2].toString(16).padStart(2, '0')}`)
-  if (frame[1] !== functionCode) throw new Error('响应功能码不匹配')
+  if (!verifyCrc(frame)) throw new Error(`响应报文 CRC 校验失败 [${frameToHex(frame)}]`)
+  if (frame[0] !== slaveId) throw new Error(`响应从机地址不匹配 [${frameToHex(frame)}]`)
+  if ((frame[1] & 0x80) !== 0) throw new Error(`从机返回异常码 0x${frame[2].toString(16).padStart(2, '0')} [${frameToHex(frame)}]`)
+  if (frame[1] !== functionCode) throw new Error(`响应功能码不匹配 [${frameToHex(frame)}]`)
   const byteCount = frame[2]
   const expectedLength = byteCount + 5
-  if (frame.length < expectedLength) throw new Error(`响应报文长度不足：期望 ${expectedLength} 字节，实际 ${frame.length} 字节`)
+  if (frame.length < expectedLength) throw new Error(`响应报文长度不足：期望 ${expectedLength} 字节，实际 ${frame.length} 字节 [${frameToHex(frame)}]`)
   const values: number[] = []
   if (functionCode === 1 || functionCode === 2) {
     for (let i = 0; i < byteCount && values.length < quantity; i += 1) {
@@ -85,7 +85,7 @@ export function parseReadResponse(frame: Buffer, slaveId: number, functionCode: 
       for (let bit = 0; bit < 8 && values.length < quantity; bit += 1) values.push((byteVal >> bit) & 1)
     }
   } else {
-    if (byteCount % 2 !== 0) throw new Error('寄存器响应字节数必须为偶数')
+    if (byteCount % 2 !== 0) throw new Error(`寄存器响应字节数必须为偶数 [${frameToHex(frame)}]`)
     for (let index = 0; index < byteCount; index += 2) values.push(frame.readUInt16BE(3 + index))
   }
   return values
@@ -142,9 +142,9 @@ export function buildWriteMultipleCoilsFrame(slaveId: number, startAddress: numb
  * @param request 请求帧（含 CRC 之前部分）。
  */
 export function verifyWriteSingleResponse(response: Buffer, request: Uint8Array): void {
-  if (!verifyCrc(response)) throw new Error('写响应 CRC 校验失败')
+  if (!verifyCrc(response)) throw new Error(`写响应 CRC 校验失败 [${frameToHex(response)}]`)
   for (let i = 0; i < request.length; i += 1) {
-    if (response[i] !== request[i]) throw new Error('写响应与请求不匹配')
+    if (response[i] !== request[i]) throw new Error(`写响应与请求不匹配 [${frameToHex(response)}]`)
   }
 }
 
@@ -159,9 +159,9 @@ export function verifyWriteSingleResponse(response: Buffer, request: Uint8Array)
  * @param quantity 写入数量。
  */
 export function verifyWriteMultipleResponse(response: Buffer, slaveId: number, functionCode: 15 | 16, startAddress: number, quantity: number): void {
-  if (!verifyCrc(response)) throw new Error('写响应 CRC 校验失败')
+  if (!verifyCrc(response)) throw new Error(`写响应 CRC 校验失败 [${frameToHex(response)}]`)
   if (response[0] !== slaveId || response[1] !== functionCode || response.readUInt16BE(2) !== startAddress || response.readUInt16BE(4) !== quantity) {
-    throw new Error('写多个响应与请求不匹配')
+    throw new Error(`写多个响应与请求不匹配 [${frameToHex(response)}]`)
   }
 }
 

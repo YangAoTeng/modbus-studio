@@ -1,3 +1,5 @@
+import { frameToHex } from './rtu-frame'
+
 /**
  * @brief 构造 Modbus TCP ADU 报文。
  *
@@ -122,13 +124,13 @@ export function buildTcpWriteMultipleCoilsFrame(transactionId: number, unitId: n
  * @returns 寄存器数组。
  */
 export function parseTcpReadResponse(frame: Buffer, transactionId: number, unitId: number, functionCode: 1 | 2 | 3 | 4, quantity: number): number[] {
-  if (frame.length < 9 || frame.readUInt16BE(0) !== transactionId || frame.readUInt16BE(2) !== 0) throw new Error('Modbus TCP 响应头无效')
-  if (frame[6] !== unitId) throw new Error('Modbus TCP 单元标识不匹配')
-  if ((frame[7] & 0x80) !== 0) throw new Error(`从机返回异常码 0x${frame[8].toString(16).padStart(2, '0')}`)
-  if (frame[7] !== functionCode) throw new Error('Modbus TCP 功能码不匹配')
+  if (frame.length < 9 || frame.readUInt16BE(0) !== transactionId || frame.readUInt16BE(2) !== 0) throw new Error(`Modbus TCP 响应头无效 [${frameToHex(frame)}]`)
+  if (frame[6] !== unitId) throw new Error(`Modbus TCP 单元标识不匹配 [${frameToHex(frame)}]`)
+  if ((frame[7] & 0x80) !== 0) throw new Error(`从机返回异常码 0x${frame[8].toString(16).padStart(2, '0')} [${frameToHex(frame)}]`)
+  if (frame[7] !== functionCode) throw new Error(`Modbus TCP 功能码不匹配 [${frameToHex(frame)}]`)
   const byteCount = frame[8]
   const expectedLength = 9 + byteCount
-  if (frame.length < expectedLength) throw new Error(`Modbus TCP 响应长度不足：期望 ${expectedLength} 字节，实际 ${frame.length} 字节`)
+  if (frame.length < expectedLength) throw new Error(`Modbus TCP 响应长度不足：期望 ${expectedLength} 字节，实际 ${frame.length} 字节 [${frameToHex(frame)}]`)
   const values: number[] = []
   if (functionCode === 1 || functionCode === 2) {
     for (let i = 0; i < byteCount && values.length < quantity; i += 1) {
@@ -136,7 +138,7 @@ export function parseTcpReadResponse(frame: Buffer, transactionId: number, unitI
       for (let bit = 0; bit < 8 && values.length < quantity; bit += 1) values.push((byteVal >> bit) & 1)
     }
   } else {
-    if (byteCount % 2 !== 0) throw new Error('寄存器响应字节数必须为偶数')
+    if (byteCount % 2 !== 0) throw new Error(`寄存器响应字节数必须为偶数 [${frameToHex(frame)}]`)
     for (let offset = 0; offset < byteCount; offset += 2) values.push(frame.readUInt16BE(9 + offset))
   }
   return values

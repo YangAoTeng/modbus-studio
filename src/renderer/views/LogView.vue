@@ -1,37 +1,75 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
 import { useStore } from 'vuex'
+import { ElMessage } from 'element-plus'
 import type { RootState } from '../store'
 import type { PacketLogItem } from '../../shared/types'
 
 const store = useStore<RootState>()
 const filterDirection = ref<'全部' | 'TX' | 'RX'>('全部')
 const filterProtocol = ref<'全部' | 'RTU' | 'TCP'>('全部')
+const filterAddressRange = ref<'全部' | 'coil' | 'discrete' | 'input' | 'holding'>('全部')
 
-/**
- * @brief 按方向和协议过滤报文日志。
- *
- * 选择"全部"时不限制对应维度，保持所有条目。
- */
+const addressRangeLabels: Record<string, string> = {
+  coil: '线圈 0xxxx (00001-09999)',
+  discrete: '离散输入 1xxxx (10001-19999)',
+  input: '输入寄存器 3xxxx (30001-39999)',
+  holding: '保持寄存器 4xxxx (40001-49999)'
+}
+
+/** @brief 从日志解析文本中推断所属 Modbus 数据区。 */
+function getAreaFromParsed(parsed: string): string | null {
+  const dispAddr = parsed.match(/地址\s*(\d{5})/)
+  if (dispAddr) {
+    const addr = Number(dispAddr[1])
+    if (addr >= 40001 && addr <= 49999) return 'holding'
+    if (addr >= 30001 && addr <= 39999) return 'input'
+    if (addr >= 10001 && addr <= 19999) return 'discrete'
+    if (addr >= 1 && addr <= 9999) return 'coil'
+  }
+  const fcMatch = parsed.match(/FC\s*(\d+)/i) || parsed.match(/功能码\s*(\d+)/)
+  if (fcMatch) {
+    const fc = Number(fcMatch[1])
+    if (fc === 1 || fc === 5 || fc === 15) return 'coil'
+    if (fc === 2) return 'discrete'
+    if (fc === 4) return 'input'
+    if (fc === 3 || fc === 6 || fc === 16) return 'holding'
+  }
+  if (/线圈|Coil/i.test(parsed)) return 'coil'
+  if (/离散/.test(parsed)) return 'discrete'
+  if (/输入寄存器/.test(parsed)) return 'input'
+  if (/保持寄存器|Holding/i.test(parsed)) return 'holding'
+  return null
+}
+
 const filteredLogs = computed(() => {
   return store.state.logs.filter((item: PacketLogItem) => {
     if (filterDirection.value !== '全部' && item.direction !== filterDirection.value) return false
     if (filterProtocol.value !== '全部' && item.protocol !== filterProtocol.value) return false
+    if (filterAddressRange.value !== '全部') {
+      if (getAreaFromParsed(item.parsed) !== filterAddressRange.value) return false
+    }
     return true
   })
 })
 
-/**
- * @brief 新报文到达时自动滚回表格顶部。
- *
- * 因为日志以 prepend 方式写入 store.state.logs，最新报文始终在数组首位。
- */
 watch(() => store.state.logs.length, () => {
   nextTick(() => {
     const tableBody = document.querySelector('.log-table .el-table__body-wrapper')
     if (tableBody) tableBody.scrollTop = 0
   })
 })
+
+async function handleExport(): Promise<void> {
+  if (!window.modbusApi) { ElMessage.warning('导出功能仅在桌面端可用'); return }
+  if (store.state.logs.length === 0) { ElMessage.warning('日志为空，无数据可导出'); return }
+  try {
+    const path = await window.modbusApi.log.export(store.state.logs)
+    if (path) ElMessage.success('报文日志已导出')
+  } catch (error) {
+    ElMessage.error((error as Error).message)
+  }
+}
 </script>
 
 <template>
@@ -47,8 +85,16 @@ watch(() => store.state.logs.length, () => {
         <el-option label="RTU" value="RTU" />
         <el-option label="TCP" value="TCP" />
       </el-select>
+      <el-select v-model="filterAddressRange" style="width: 220px; margin-left: 12px">
+        <el-option label="全部地址区" value="全部" />
+        <el-option :label="addressRangeLabels.coil" value="coil" />
+        <el-option :label="addressRangeLabels.discrete" value="discrete" />
+        <el-option :label="addressRangeLabels.input" value="input" />
+        <el-option :label="addressRangeLabels.holding" value="holding" />
+      </el-select>
       <span class="toolbar-spacer" />
       <span class="toolbar-tip" style="margin-right: 16px">保留最近 1000 条，新报文自动刷新</span>
+      <el-button @click="handleExport">导出日志</el-button>
       <el-button @click="store.commit('clearLogs')">清空日志</el-button>
     </section>
     <section class="panel page-table">

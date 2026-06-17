@@ -51,7 +51,7 @@ onMounted(refreshPorts)
       <template v-if="store.state.protocol === 'RTU'">
         <div class="section-label">串口设置 <el-button link type="primary" @click="refreshPorts">刷新</el-button></div>
         <label>端口</label><el-select v-model="connection.path"><el-option v-for="port in store.state.ports" :key="port" :label="port" :value="port" /></el-select>
-        <label>波特率</label><el-select v-model="connection.baudRate"><el-option v-for="value in [9600, 19200, 38400, 57600, 115200]" :key="value" :label="value" :value="value" /></el-select>
+        <label>波特率</label><el-select v-model="connection.baudRate"><el-option v-for="value in [1200, 2400, 4800, 9600, 14400, 19200, 38400, 56000, 57600, 115200, 128000, 230400, 256000, 460800, 921600]" :key="value" :label="value" :value="value" /></el-select>
         <div class="field-grid"><div><label>数据位</label><el-select v-model="connection.dataBits"><el-option :value="8" label="8" /></el-select></div><div><label>停止位</label><el-select v-model="connection.stopBits"><el-option :value="1" label="1" /><el-option :value="2" label="2" /></el-select></div></div>
         <label>校验位</label><el-select v-model="connection.parity"><el-option label="None" value="none" /><el-option label="Even" value="even" /><el-option label="Odd" value="odd" /></el-select>
         <label>超时时间</label><el-input-number v-model="connection.timeout" :min="100" :max="10000" :step="100" controls-position="right" />

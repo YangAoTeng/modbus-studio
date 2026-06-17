@@ -1,7 +1,7 @@
 import { app, BrowserWindow, Menu, dialog, ipcMain } from 'electron'
 import { join } from 'node:path'
 import { readFile, writeFile } from 'node:fs/promises'
-import type { ProjectData, ReadRegistersParams, RecentProject, SerialConfig, ServerConfig, ServerDataUpdate, ServerEvent, TcpConfig, WriteMultipleRegistersParams, WriteRegisterParams } from '../shared/types'
+import type { PacketLogItem, ProjectData, ReadRegistersParams, RecentProject, RegisterDefinition, SerialConfig, ServerConfig, ServerDataUpdate, ServerEvent, TcpConfig, WriteMultipleRegistersParams, WriteRegisterParams } from '../shared/types'
 import { SerialService } from './services/SerialService'
 import { ModbusClientService } from './services/ModbusClientService'
 import { TcpClientService } from './services/TcpClientService'
@@ -149,6 +149,74 @@ function registerIpcHandlers(): void {
     const projects = (await readRecentProjects()).filter((item) => item.path !== path)
     await writeFile(getRecentProjectsPath(), JSON.stringify(projects, null, 2), 'utf8')
     return projects
+  })
+  ipcMain.handle('dictionary:export', async (_event, items: RegisterDefinition[]) => {
+    const selected = await dialog.showSaveDialog({
+      title: '导出寄存器字典',
+      defaultPath: 'register-dictionary.csv',
+      filters: [
+        { name: 'CSV 文件', extensions: ['csv'] },
+        { name: 'JSON 文件', extensions: ['json'] }
+      ]
+    })
+    if (selected.canceled || !selected.filePath) return null
+    const isCsv = selected.filePath.endsWith('.csv')
+    const content = isCsv
+      ? '﻿分组,地址,名称,数据类型,长度,读写,比例因子,单位,备注\n' + items.map((item) => `"${item.group}","${item.address}","${item.name}","${item.dataType}","${item.length}","${item.access}","${item.factor}","${item.unit}","${item.remark}"`).join('\n')
+      : JSON.stringify(items, null, 2)
+    await writeFile(selected.filePath, content, 'utf8')
+    return selected.filePath
+  })
+  ipcMain.handle('dictionary:import', async () => {
+    const selected = await dialog.showOpenDialog({
+      title: '导入寄存器字典',
+      filters: [
+        { name: '字典文件', extensions: ['csv', 'json'] },
+        { name: 'CSV 文件', extensions: ['csv'] },
+        { name: 'JSON 文件', extensions: ['json'] }
+      ],
+      properties: ['openFile']
+    })
+    if (selected.canceled || selected.filePaths.length === 0) return null
+    const filePath = selected.filePaths[0]
+    const content = await readFile(filePath, 'utf8')
+    if (filePath.endsWith('.csv')) {
+      const lines = content.replace(/^﻿/, '').split('\n').filter((line) => line.trim())
+      if (lines.length < 2) return []
+      return lines.slice(1).map((line) => {
+        const parts = line.match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g) ?? line.split(',')
+        const val = (index: number): string => (parts[index] ?? '').replace(/^"|"$/g, '').trim()
+        return {
+          group: val(0) || '默认分组',
+          address: Number(val(1)) || 40001,
+          name: val(2) || '',
+          dataType: val(3) || 'UINT16',
+          length: Number(val(4)) || 1,
+          access: (val(5) as 'R' | 'W' | 'RW') || 'R',
+          factor: Number(val(6)) || 1,
+          unit: val(7) || '无',
+          remark: val(8) || ''
+        } as RegisterDefinition
+      })
+    }
+    return JSON.parse(content) as RegisterDefinition[]
+  })
+  ipcMain.handle('log:export', async (_event, items: PacketLogItem[]) => {
+    const selected = await dialog.showSaveDialog({
+      title: '导出报文日志',
+      defaultPath: 'modbus-log.csv',
+      filters: [
+        { name: 'CSV 文件', extensions: ['csv'] },
+        { name: '文本文件', extensions: ['txt'] }
+      ]
+    })
+    if (selected.canceled || !selected.filePath) return null
+    const isCsv = selected.filePath.endsWith('.csv')
+    const content = isCsv
+      ? '﻿序号,时间,方向,协议,原始数据,解析结果,耗时(ms),状态\n' + items.map((item) => `"${item.id}","${item.time}","${item.direction}","${item.protocol}","${item.raw}","${item.parsed}","${item.elapsedMs}","${item.status}"`).join('\n')
+      : items.map((item) => `[${item.time}] ${item.direction} ${item.protocol} ${item.raw} | ${item.parsed} | ${item.elapsedMs}ms | ${item.status}`).join('\n')
+    await writeFile(selected.filePath, content, 'utf8')
+    return selected.filePath
   })
 }
 

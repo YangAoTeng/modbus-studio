@@ -1,5 +1,28 @@
 import type { RegisterDefinition, ServerAreaName } from '../../shared/types'
 
+/**
+ * @brief 将数值地址格式化为十六进制显示文本。
+ * @param address 数值地址。
+ * @returns 带 0x 前缀的四位大写十六进制字符串。
+ */
+export function formatAddressHex(address: number): string {
+  return `0x${address.toString(16).toUpperCase().padStart(4, '0')}`
+}
+
+/**
+ * @brief 解析十六进制地址字符串为数值。
+ *
+ * 支持 0x 前缀和纯十六进制，也兼容十进制数字。
+ * @param text 地址文本。
+ * @returns 解析后的数值，无效时返回 NaN。
+ */
+export function parseHexAddress(text: string): number {
+  const trimmed = text.trim()
+  if (/^0x[0-9a-fA-F]+$/.test(trimmed)) return Number.parseInt(trimmed.slice(2), 16)
+  if (/^[0-9a-fA-F]+$/.test(trimmed)) return Number.parseInt(trimmed, 16)
+  return Number(trimmed)
+}
+
 export interface RegisterAddressInfo {
   area: ServerAreaName
   protocolAddress: number

@@ -162,4 +162,11 @@ export interface ModbusApi {
     listRecent: () => Promise<RecentProject[]>
     removeRecent: (path: string) => Promise<RecentProject[]>
   }
+  dictionary: {
+    export: (items: RegisterDefinition[]) => Promise<string | null>
+    import: () => Promise<RegisterDefinition[] | null>
+  }
+  log: {
+    export: (items: PacketLogItem[]) => Promise<string | null>
+  }
 }

@@ -6,7 +6,7 @@
 
 ## 项目状态
 
-- 当前版本：V1.1.3
+- 当前版本：V1.1.4
 - 运行平台：Windows
 - 技术栈：Electron、Vue 3、Vuex、TypeScript、Element Plus
 - 开源协议：MIT

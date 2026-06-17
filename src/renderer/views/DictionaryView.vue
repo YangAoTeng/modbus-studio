@@ -15,58 +15,29 @@ const draft = reactive<RegisterDefinition>(createEmptyItem())
 const filteredDictionary = computed(() => {
   const keyword = searchText.value.trim().toLowerCase()
   if (!keyword) return store.state.dictionary.map((item, index) => ({ item, index }))
-  return store.state.dictionary.map((item, index) => ({ item, index })).filter(({ item }) => [item.group, item.name, item.address, item.dataType, item.unit, item.remark].some((value) => String(value).toLowerCase().includes(keyword)))
+  return store.state.dictionary.map((item, index) => ({ item, index })).filter(({ item }) => [item.group, item.name, String(item.address), item.dataType, item.unit, item.remark].some((value) => String(value).toLowerCase().includes(keyword)))
 })
 
-/**
- * @brief 创建空白寄存器定义。
- *
- * 提供新增字典项所需的全部默认字段，包括长度、权限、比例、单位和备注。
- * @returns 空白寄存器定义。
- */
 function createEmptyItem(): RegisterDefinition {
   return { group: '默认分组', address: 40001, name: '', dataType: 'UINT16', length: 1, access: 'R', factor: 1, unit: '无', remark: '' }
 }
 
-/**
- * @brief 打开新增寄存器对话框。
- *
- * 重置表单和编辑索引，确保新增操作不会覆盖已有条目。
- */
 function openCreateDialog(): void {
   editingIndex.value = -1
   Object.assign(draft, createEmptyItem())
   dialogVisible.value = true
 }
 
-/**
- * @brief 打开编辑寄存器对话框。
- *
- * 将指定条目的全部字段复制到表单，保存后替换原条目。
- * @param item 寄存器定义。
- * @param index 原始字典索引。
- */
 function openEditDialog(item: RegisterDefinition, index: number): void {
   editingIndex.value = index
   Object.assign(draft, item)
   dialogVisible.value = true
 }
 
-/**
- * @brief 数据类型变更时自动更新默认长度。
- *
- * 根据数据类型推荐合适的寄存器长度，用户仍可手动覆盖。
- * @param newType 新选择的数据类型。
- */
 function onDataTypeChange(newType: string): void {
   draft.length = getDefaultLengthForType(newType)
 }
 
-/**
- * @brief 保存寄存器定义。
- *
- * 校验名称、地址、长度和比例因子后执行新增或更新，并关闭对话框。
- */
 function saveItem(): void {
   if (!draft.name.trim()) { ElMessage.warning('请输入寄存器名称'); return }
   if (draft.length < 1) { ElMessage.warning('寄存器长度不能小于 1'); return }
@@ -77,16 +48,64 @@ function saveItem(): void {
   dialogVisible.value = false
   ElMessage.success(editingIndex.value >= 0 ? '寄存器已更新' : '寄存器已添加')
 }
+
+async function handleImport(): Promise<void> {
+  if (!window.modbusApi) { ElMessage.warning('导入功能仅在桌面端可用'); return }
+  try {
+    const items = await window.modbusApi.dictionary.import()
+    if (!items || items.length === 0) return
+    store.commit('setDictionary', items)
+    ElMessage.success(`已导入 ${items.length} 个字典项`)
+  } catch (error) {
+    ElMessage.error((error as Error).message)
+  }
+}
+
+async function handleExport(): Promise<void> {
+  if (!window.modbusApi) { ElMessage.warning('导出功能仅在桌面端可用'); return }
+  if (store.state.dictionary.length === 0) { ElMessage.warning('字典为空，无数据可导出'); return }
+  try {
+    const path = await window.modbusApi.dictionary.export(store.state.dictionary)
+    if (path) ElMessage.success('寄存器字典已导出')
+  } catch (error) {
+    ElMessage.error((error as Error).message)
+  }
+}
+
+function handleMoveUp(index: number): void {
+  store.commit('moveDictionaryItemUp', index)
+}
+
+function handleMoveDown(index: number): void {
+  store.commit('moveDictionaryItemDown', index)
+}
 </script>
 
 <template>
   <div class="page-stack">
     <section class="panel page-toolbar dictionary-toolbar">
       <el-button type="primary" @click="openCreateDialog">新增寄存器</el-button>
+      <el-button @click="handleImport">导入字典</el-button>
+      <el-button @click="handleExport">导出字典</el-button>
       <span class="toolbar-tip">可配置数据类型、长度、读写权限、比例因子、单位和备注</span>
       <span class="toolbar-spacer" />
       <el-input v-model="searchText" class="dictionary-search" placeholder="搜索名称、地址、单位或备注..." clearable />
     </section>
+
+    <section class="panel" style="margin-bottom: 0;">
+      <el-alert type="info" :closable="false" show-icon style="margin: 0;">
+        <template #title>
+          <span style="font-size: 13px; line-height: 1.8;">
+            <b>地址区段说明：</b>
+            00001 ~ 09999 = <b>线圈 Coils</b>&nbsp;&nbsp;|&nbsp;&nbsp;
+            10001 ~ 19999 = <b>离散输入 Discrete Inputs</b>&nbsp;&nbsp;|&nbsp;&nbsp;
+            30001 ~ 39999 = <b>输入寄存器 Input Registers</b>&nbsp;&nbsp;|&nbsp;&nbsp;
+            40001 ~ 49999 = <b>保持寄存器 Holding Registers</b>
+          </span>
+        </template>
+      </el-alert>
+    </section>
+
     <section class="panel page-table">
       <div class="panel-title"><h3>寄存器字典</h3><span>显示 {{ filteredDictionary.length }} / {{ store.state.dictionary.length }} 个点位</span></div>
       <el-table :data="filteredDictionary" height="100%" stripe>
@@ -99,7 +118,14 @@ function saveItem(): void {
         <el-table-column label="比例因子" width="100"><template #default="scope">{{ scope.row.item.factor }}</template></el-table-column>
         <el-table-column label="单位" width="90"><template #default="scope">{{ scope.row.item.unit }}</template></el-table-column>
         <el-table-column label="备注" min-width="170" show-overflow-tooltip><template #default="scope">{{ scope.row.item.remark }}</template></el-table-column>
-        <el-table-column label="操作" width="130" fixed="right"><template #default="scope"><el-button link type="primary" @click="openEditDialog(scope.row.item, scope.row.index)">编辑</el-button><el-button link type="danger" @click="store.commit('removeDictionaryItem', scope.row.index)">删除</el-button></template></el-table-column>
+        <el-table-column label="操作" width="190" fixed="right">
+          <template #default="scope">
+            <el-button link type="primary" @click="handleMoveUp(scope.row.index)" :disabled="scope.row.index === 0">上移</el-button>
+            <el-button link type="primary" @click="handleMoveDown(scope.row.index)" :disabled="scope.row.index === store.state.dictionary.length - 1">下移</el-button>
+            <el-button link type="primary" @click="openEditDialog(scope.row.item, scope.row.index)">编辑</el-button>
+            <el-button link type="danger" @click="store.commit('removeDictionaryItem', scope.row.index)">删除</el-button>
+          </template>
+        </el-table-column>
       </el-table>
     </section>
 

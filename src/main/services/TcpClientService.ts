@@ -68,8 +68,8 @@ export class TcpClientService {
     const startedAt = performance.now()
     const response = await this.transact(request, params.timeout)
     // 分字段校验：MBAP 事务标识 + 单元标识 + PDU 功能码/地址/值
-    if (response.readUInt16BE(0) !== transactionId || response[6] !== params.slaveId || response[7] !== (isCoil ? 0x05 : 0x06)) throw new Error('Modbus TCP 写响应头不匹配')
-    if (response.readUInt16BE(8) !== params.address || response.readUInt16BE(10) !== (isCoil ? (params.value ? 0xff00 : 0x0000) : params.value)) throw new Error('Modbus TCP 写响应地址或值不匹配')
+    if (response.readUInt16BE(0) !== transactionId || response[6] !== params.slaveId || response[7] !== (isCoil ? 0x05 : 0x06)) throw new Error(`Modbus TCP 写响应头不匹配 [${frameToHex(response)}]`)
+    if (response.readUInt16BE(8) !== params.address || response.readUInt16BE(10) !== (isCoil ? (params.value ? 0xff00 : 0x0000) : params.value)) throw new Error(`Modbus TCP 写响应地址或值不匹配 [${frameToHex(response)}]`)
     return { tx: frameToHex(request), rx: frameToHex(response), registers: [params.value], elapsedMs: Math.max(1, Math.round(performance.now() - startedAt)), crcValid: true }
   }
 
@@ -87,7 +87,7 @@ export class TcpClientService {
     const startedAt = performance.now()
     const response = await this.transact(request, params.timeout)
     const fc = isCoil ? 0x0f : 0x10
-    if (response.readUInt16BE(0) !== transactionId || response[7] !== fc || response.readUInt16BE(8) !== params.startAddress || response.readUInt16BE(10) !== params.values.length) throw new Error('Modbus TCP 写响应范围不匹配')
+    if (response.readUInt16BE(0) !== transactionId || response[7] !== fc || response.readUInt16BE(8) !== params.startAddress || response.readUInt16BE(10) !== params.values.length) throw new Error(`Modbus TCP 写响应范围不匹配 [${frameToHex(response)}]`)
     return { tx: frameToHex(request), rx: frameToHex(response), registers: params.values, elapsedMs: Math.max(1, Math.round(performance.now() - startedAt)), crcValid: true }
   }
 
