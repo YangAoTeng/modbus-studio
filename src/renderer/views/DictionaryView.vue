@@ -65,7 +65,7 @@ async function handleExport(): Promise<void> {
   if (!window.modbusApi) { ElMessage.warning('导出功能仅在桌面端可用'); return }
   if (store.state.dictionary.length === 0) { ElMessage.warning('字典为空，无数据可导出'); return }
   try {
-    const path = await window.modbusApi.dictionary.export(store.state.dictionary)
+    const path = await window.modbusApi.dictionary.export(store.state.dictionary.map((item) => ({ ...item })))
     if (path) ElMessage.success('寄存器字典已导出')
   } catch (error) {
     ElMessage.error((error as Error).message)

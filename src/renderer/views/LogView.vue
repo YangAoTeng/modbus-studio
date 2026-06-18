@@ -64,7 +64,7 @@ async function handleExport(): Promise<void> {
   if (!window.modbusApi) { ElMessage.warning('导出功能仅在桌面端可用'); return }
   if (store.state.logs.length === 0) { ElMessage.warning('日志为空，无数据可导出'); return }
   try {
-    const path = await window.modbusApi.log.export(store.state.logs)
+    const path = await window.modbusApi.log.export(store.state.logs.map((item) => ({ ...item })))
     if (path) ElMessage.success('报文日志已导出')
   } catch (error) {
     ElMessage.error((error as Error).message)
