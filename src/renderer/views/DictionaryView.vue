@@ -97,10 +97,10 @@ function handleMoveDown(index: number): void {
         <template #title>
           <span style="font-size: 13px; line-height: 1.8;">
             <b>地址区段说明：</b>
-            00001 ~ 09999 = <b>线圈 (01)</b>&nbsp;&nbsp;|&nbsp;&nbsp;
-            10001 ~ 19999 = <b>离散输入 (02)</b>&nbsp;&nbsp;|&nbsp;&nbsp;
-            30001 ~ 39999 = <b>输入寄存器 (04)</b>&nbsp;&nbsp;|&nbsp;&nbsp;
-            40001 ~ 49999 = <b>保持寄存器 (03)</b>
+            00001 ~ 09999 = <b>线圈 读(01) 写(05/15)</b>&nbsp;&nbsp;|&nbsp;&nbsp;
+            10001 ~ 19999 = <b>离散输入 读(02)</b>&nbsp;&nbsp;|&nbsp;&nbsp;
+            30001 ~ 39999 = <b>输入寄存器 读(04)</b>&nbsp;&nbsp;|&nbsp;&nbsp;
+            40001 ~ 49999 = <b>保持寄存器 读(03) 写(06/16)</b>
           </span>
         </template>
       </el-alert>
