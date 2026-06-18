@@ -118,12 +118,14 @@ function handleMoveDown(index: number): void {
         <el-table-column label="比例因子" width="100"><template #default="scope">{{ scope.row.item.factor }}</template></el-table-column>
         <el-table-column label="单位" width="90"><template #default="scope">{{ scope.row.item.unit }}</template></el-table-column>
         <el-table-column label="备注" min-width="170" show-overflow-tooltip><template #default="scope">{{ scope.row.item.remark }}</template></el-table-column>
-        <el-table-column label="操作" width="190" fixed="right">
+        <el-table-column label="操作" width="260" fixed="right">
           <template #default="scope">
-            <el-button link type="primary" @click="handleMoveUp(scope.row.index)" :disabled="scope.row.index === 0">上移</el-button>
-            <el-button link type="primary" @click="handleMoveDown(scope.row.index)" :disabled="scope.row.index === store.state.dictionary.length - 1">下移</el-button>
-            <el-button link type="primary" @click="openEditDialog(scope.row.item, scope.row.index)">编辑</el-button>
-            <el-button link type="danger" @click="store.commit('removeDictionaryItem', scope.row.index)">删除</el-button>
+            <div style="white-space: nowrap;">
+              <el-button link type="primary" @click="handleMoveUp(scope.row.index)" :disabled="scope.row.index === 0">上移</el-button>
+              <el-button link type="primary" @click="handleMoveDown(scope.row.index)" :disabled="scope.row.index === store.state.dictionary.length - 1">下移</el-button>
+              <el-button link type="primary" @click="openEditDialog(scope.row.item, scope.row.index)">编辑</el-button>
+              <el-button link type="danger" @click="store.commit('removeDictionaryItem', scope.row.index)">删除</el-button>
+            </div>
           </template>
         </el-table-column>
       </el-table>
