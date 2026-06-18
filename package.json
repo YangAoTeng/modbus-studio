@@ -1,6 +1,6 @@
 {
   "name": "modbus-studio",
-  "version": "1.1.4",
+  "version": "1.4.0",
   "description": "基于 Electron 与 Vue 3 的 Modbus RTU/TCP Client 与 Server 调试工具",
   "main": "dist-electron/main/index.js",
   "author": "杨鏊腾",

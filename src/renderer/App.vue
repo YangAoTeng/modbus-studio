@@ -34,7 +34,7 @@ async function closeWindow(): Promise<void> { await window.modbusApi?.window.clo
       </div>
     </header>
     <main class="main-stage"><RouterView /></main>
-    <footer class="statusbar">Modbus Studio v1.1.4</footer>
+    <footer class="statusbar">Modbus Studio v1.4.0</footer>
 
     <el-dialog v-model="aboutVisible" title="关于作者" width="480px" align-center>
       <div class="about-content">
