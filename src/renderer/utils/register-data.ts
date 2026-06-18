@@ -58,10 +58,10 @@ export function getDefaultLengthForType(dataType: string): number {
  * @returns 地址有效时返回数据区信息，否则返回 null。
  */
 export function resolveRegisterAddress(address: number): RegisterAddressInfo | null {
-  if (address >= 1 && address <= 9999) return { area: 'coil', protocolAddress: address - 1 }
-  if (address >= 10001 && address <= 19999) return { area: 'discrete', protocolAddress: address - 10001 }
-  if (address >= 30001 && address <= 39999) return { area: 'input', protocolAddress: address - 30001 }
-  if (address >= 40001 && address <= 49999) return { area: 'holding', protocolAddress: address - 40001 }
+  if (address >= 0 && address <= 9999) return { area: 'coil', protocolAddress: address }
+  if (address >= 10000 && address <= 19999) return { area: 'discrete', protocolAddress: address - 10000 }
+  if (address >= 30000 && address <= 39999) return { area: 'input', protocolAddress: address - 30000 }
+  if (address >= 40000 && address <= 49999) return { area: 'holding', protocolAddress: address - 40000 }
   return null
 }
 

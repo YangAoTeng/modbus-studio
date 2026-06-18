@@ -12,3 +12,4 @@ release-*/
 .env
 .env.*
 !.env.example
+out/

@@ -74,10 +74,10 @@ interface ReadGroup {
 
 /** @brief 地址范围 → 功能码映射表。 */
 const ADDRESS_FC_MAP: { min: number; max: number; functionCode: 1 | 2 | 3 | 4; baseAddress: number }[] = [
-  { min: 1, max: 9999, functionCode: 1, baseAddress: 1 },
-  { min: 10001, max: 19999, functionCode: 2, baseAddress: 10001 },
-  { min: 30001, max: 39999, functionCode: 4, baseAddress: 30001 },
-  { min: 40001, max: 49999, functionCode: 3, baseAddress: 40001 }
+  { min: 0, max: 9999, functionCode: 1, baseAddress: 0 },
+  { min: 10000, max: 19999, functionCode: 2, baseAddress: 10000 },
+  { min: 30000, max: 39999, functionCode: 4, baseAddress: 30000 },
+  { min: 40000, max: 49999, functionCode: 3, baseAddress: 40000 }
 ]
 
 /**

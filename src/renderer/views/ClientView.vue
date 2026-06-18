@@ -22,7 +22,7 @@ const rows = computed(() => store.state.dictionary.map((item) => {
  * @param address 显示地址。
  */
 function isBitItem(address: number): boolean {
-  return (address >= 1 && address <= 9999) || (address >= 10001 && address <= 19999)
+  return (address >= 0 && address <= 9999) || (address >= 10000 && address <= 19999)
 }
 
 /**
@@ -30,7 +30,7 @@ function isBitItem(address: number): boolean {
  * @param address 显示地址。
  */
 function isCoilAddress(address: number): boolean {
-  return address >= 1 && address <= 9999
+  return address >= 0 && address <= 9999
 }
 
 /**
@@ -111,7 +111,7 @@ async function commitCell(item: RegisterDefinition, field: EditableField): Promi
  * @brief 判断寄存器条目是否可写（保持寄存器区，access W/RW）。
  */
 function isRegisterEditable(item: RegisterDefinition): boolean {
-  return item.access !== 'R' && item.address >= 40001 && item.address <= 49999
+  return item.access !== 'R' && item.address >= 40000 && item.address <= 49999
 }
 
 /**
