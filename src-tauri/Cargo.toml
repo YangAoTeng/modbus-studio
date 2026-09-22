@@ -1,0 +1,29 @@
+[package]
+name = "modbus-studio"
+version = "1.6.0"
+description = "基于 Tauri 与 Vue 3 的 Modbus RTU/TCP/UDP Client 与 Server 调试工具"
+authors = ["杨鏊腾"]
+license = "MIT"
+edition = "2021"
+rust-version = "1.77.2"
+
+# 注意：本文件替换原 Electron 主进程依赖，后端改为 Rust。
+# 打包体积对比（估算）：Electron 自带 Chromium + Node，单文件安装包通常 80~150 MB；
+# Tauri 复用系统 WebView，仅内嵌 Rust 二进制，单文件通常 3~15 MB。
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+serialport = "4"
+encoding_rs = "0.8"
+chrono = "0.4"
+
+[features]
+# 默认不启用自定义协议，避免跨平台打包差异
+default = []

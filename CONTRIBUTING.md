@@ -6,7 +6,7 @@
 
 ```powershell
 npm install
-npm run dev
+npm run tauri dev
 ```
 
 ## 提交前检查
@@ -17,11 +17,16 @@ npm run dev
 npm run build
 ```
 
-如果修改了类型、主进程或协议代码，建议额外执行：
+如果修改了类型或前端代码，建议额外执行：
 
 ```powershell
 npx vue-tsc --noEmit
-npx tsc -p tsconfig.electron.json --noEmit
+```
+
+如果修改了 Rust 后端，请执行：
+
+```powershell
+npm run tauri build
 ```
 
 ## Issue 建议
@@ -40,4 +45,4 @@ npx tsc -p tsconfig.electron.json --noEmit
 - 保持改动聚焦，一次 PR 解决一个主要问题。
 - 涉及界面行为时，请附上截图或简短说明。
 - 涉及 Modbus 协议行为时，请说明功能码、地址范围和测试方式。
-- 不要提交 `dist/`、`dist-electron/`、`release/`、安装包和本地工程文件。
+- 不要提交 `dist/`、`src-tauri/target/`、`release/`（Tauri 构建产物）、安装包和本地工程文件。

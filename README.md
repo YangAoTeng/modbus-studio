@@ -6,20 +6,47 @@
 
 ## 项目状态
 
-- 当前版本：V1.1.4
-- 运行平台：Windows
-- 技术栈：Electron、Vue 3、Vuex、TypeScript、Element Plus
+- 当前版本：V1.6.0
+- 运行平台：Windows / Linux（基于 Tauri 的跨平台桌面应用）
+- 技术栈：Tauri 2、Rust、Vue 3、Vuex、TypeScript、Element Plus
 - 开源协议：MIT
+- 分发体积：Linux 下编译产物约 **12 MB**（得益于 Tauri 复用系统 WebView，仅内嵌轻量 Rust 二进制）
+
+## 项目背景与致谢
+
+本项目最初由 **杨鏊腾（PlayerPencil）** 基于 **Electron + Vue 3** 设计与实现，原始的界面构思、寄存器字典模型以及 Client / Server 调试流程均源自其工作，在此致以诚挚的感谢。
+
+在原始 Electron 方案中，由于 Electron 自带 Chromium 与 Node.js 运行时，单次打包的安装包通常高达 **80~150 MB**，对一款轻量级的 Modbus 调试工具来说显得过于臃肿，分发与下载成本都偏高。
+
+为了大幅降低产物体积、提升启动速度，本项目在原设计基础上使用 **Tauri 2（Rust + 系统 WebView）** 进行了工程化重构：
+
+- 后端主进程由 Electron 主进程改为 **Rust** 实现（`src-tauri` 目录），前后端通过 Tauri 的 `invoke` 桥接通信。
+- 前端完整复用了原有的 **Vue 3 + Vuex + Element Plus** 架构，以及寄存器字典、Client / Server 调试逻辑等核心能力。
+- 得益于 Tauri 复用系统 WebView、不再捆绑整套浏览器内核，**Linux 下编译产物约为 12 MB**，相比 Electron 方案体积缩小了一个数量级。
+
+本仓库是站在原作者肩膀上完成的重构，再次感谢杨鏊腾（PlayerPencil）的构思与前期工作。
 
 ## 快速开始
 
-下载或打包后运行：
+### 开发模式
 
-```text
-Modbus Studio\Modbus Studio.exe
+```bash
+pnpm install
+pnpm dev              # 启动 Vite 开发服务器，配合已运行的 Tauri 窗口使用
 ```
 
-开发、构建和打包命令见 [DEVELOPMENT.md](DEVELOPMENT.md)。
+### 构建与打包
+
+```bash
+pnpm run tauri build  # 构建前端并编译 Rust，产出原生二进制 / 安装包
+```
+
+构建产物位于 `src-tauri/target/release/`：
+
+- Windows：生成安装包（nsis）。
+- Linux：当前生成约 **12 MB** 的原生二进制。
+
+开发、构建和打包命令详见 [DEVELOPMENT.md](DEVELOPMENT.md)。
 
 ## 1. 软件用途
 
@@ -366,9 +393,8 @@ base: './'
 
 然后重新执行：
 
-```powershell
-npm run build
-npm run dist
+```bash
+pnpm run tauri build
 ```
 
 旧打包目录不会自动修复，需要使用重新生成的新目录。
@@ -395,8 +421,8 @@ Remove-Item .\release\win-unpacked.tmp -Recurse -Force
 
 4. 重新执行：
 
-```powershell
-npm run dist
+```bash
+pnpm run tauri build
 ```
 
 ### 9.3 TCP 连接失败

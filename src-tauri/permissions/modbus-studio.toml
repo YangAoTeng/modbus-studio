@@ -1,0 +1,28 @@
+# Modbus Studio 自定义命令权限集
+# 在 capabilities/default.json 中以 "allow-app-commands" 引用。
+[[permission]]
+identifier = "allow-app-commands"
+description = "允许调用 Modbus Studio 的全部自定义 Tauri 命令（串口 / TCP / UDP / 主从站 / 工程与文件）"
+commands.allow = [
+  "serial_list",
+  "serial_open",
+  "serial_close",
+  "tcp_connect",
+  "tcp_disconnect",
+  "udp_connect",
+  "udp_disconnect",
+  "client_read_registers",
+  "client_write_single",
+  "client_write_multiple",
+  "server_start_instance",
+  "server_stop_instance",
+  "server_update_instance_data",
+  "project_open",
+  "project_open_path",
+  "project_save",
+  "project_list_recent",
+  "project_remove_recent",
+  "dictionary_export",
+  "dictionary_import",
+  "log_export"
+]

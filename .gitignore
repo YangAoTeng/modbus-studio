@@ -1,6 +1,6 @@
 node_modules/
 dist/
-dist-electron/
+src-tauri/target/
 release/
 release-*/
 *.log
@@ -13,3 +13,4 @@ release-*/
 .env.*
 !.env.example
 out/
+.workbuddy/

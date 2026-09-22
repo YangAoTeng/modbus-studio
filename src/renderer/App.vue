@@ -30,7 +30,7 @@ onMounted(() => {
 
 <template>
   <div class="app-shell">
-    <header class="topbar">
+    <header class="topbar" data-tauri-drag-region>
       <div class="brand"><span class="brand-mark">M</span><strong>Modbus Studio</strong></div>
       <nav class="main-nav">
         <RouterLink v-for="item in navigation" :key="item.path" :to="item.path">
@@ -50,10 +50,10 @@ onMounted(() => {
     <el-dialog v-model="aboutVisible" title="关于作者" width="480px" align-center>
       <div class="about-content">
         <div class="about-info">
-          <div class="about-row"><label>作者</label><span>PlayerPencil</span></div>
-          <div class="about-row"><label>微信</label><span>PlayerPencil</span></div>
-          <div class="about-row"><label>邮件</label><span>yangaoteng1996@gmail.com</span></div>
-          <div class="about-row"><label>公众号</label><span>杨工的碎碎念</span></div>
+          <div class="about-row"><label>作者</label><span>万物联动</span></div>
+          <div class="about-row"><label>微信</label><span>wanliofficial</span></div>
+          <div class="about-row"><label>邮件</label><span>wanliofficial@aliyun.com</span></div>
+          <div class="about-row"><label>公众号</label><span>万物联动WWLD</span></div>
         </div>
         <div class="about-qrcode">
           <img src="/qrcode-mp.jpg" alt="微信公众号二维码" />

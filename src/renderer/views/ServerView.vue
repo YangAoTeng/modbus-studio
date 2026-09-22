@@ -201,7 +201,8 @@ function openCreatePointDialog(): void {
 
 function openEditPointDialog(item: RegisterDefinition, index: number): void {
   pointEditIndex.value = index
-  Object.assign(pointDraft, item)
+  // 兼容老数据/导入点位：缺少 factor 时归一化为 1，避免 el-input-number 因 undefined 无法编辑
+  Object.assign(pointDraft, { ...item, factor: Number.isFinite(item.factor) ? item.factor : 1 })
   pointDialogVisible.value = true
 }
 
@@ -213,7 +214,8 @@ function savePoint(): void {
   const instance = selected.value
   if (!instance) return
   if (!pointDraft.name.trim()) { ElMessage.warning('请输入点名称'); return }
-  const point = { ...pointDraft, name: pointDraft.name.trim(), group: pointDraft.group.trim() || '默认分组', unit: pointDraft.unit.trim() || '无' }
+  const factor = Number.isFinite(pointDraft.factor) ? pointDraft.factor : 1
+  const point = { ...pointDraft, name: pointDraft.name.trim(), group: pointDraft.group.trim() || '默认分组', unit: pointDraft.unit.trim() || '无', factor }
   if (pointEditIndex.value >= 0) store.commit('updateServerPoint', { id: instance.id, index: pointEditIndex.value, point })
   else store.commit('addServerPoint', { id: instance.id, point })
   pointDialogVisible.value = false
@@ -320,7 +322,7 @@ onMounted(() => {
             <el-table-column v-if="isBitArea" label="当前状态" min-width="150"><template #default="scope"><el-switch :model-value="Boolean(scope.row.values[0])" @change="updateBitValue(scope.row.item, $event)" /></template></el-table-column>
             <el-table-column v-if="!isBitArea" label="原始值 HEX" min-width="190"><template #default="scope"><el-input :model-value="getCellValue(scope.row, 'hex')" size="small" @update:model-value="updateCellValue(scope.row.item, 'hex', $event)" @change="commitCell(scope.row.item, 'hex')" /></template></el-table-column>
             <el-table-column v-if="!isBitArea" label="解析值" min-width="170"><template #default="scope"><el-input :model-value="getCellValue(scope.row, 'parsed')" size="small" @update:model-value="updateCellValue(scope.row.item, 'parsed', $event)" @change="commitCell(scope.row.item, 'parsed')" /></template></el-table-column>
-            <el-table-column label="倍率/单位" min-width="125"><template #default="scope">×{{ scope.row.item.factor }} {{ scope.row.item.unit }}</template></el-table-column>
+            <el-table-column label="倍率/单位" min-width="125"><template #default="scope">×{{ Number.isFinite(scope.row.item.factor) ? scope.row.item.factor : 1 }} {{ scope.row.item.unit }}</template></el-table-column>
             <el-table-column label="权限" width="80"><template #default="scope"><el-tag :type="scope.row.item.access === 'R' ? 'info' : 'success'">{{ scope.row.item.access }}</el-tag></template></el-table-column>
             <el-table-column label="备注" min-width="180"><template #default="scope">{{ scope.row.item.remark }}</template></el-table-column>
             <el-table-column label="操作" width="130" fixed="right">

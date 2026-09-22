@@ -1,6 +1,8 @@
 # Modbus Studio 开发说明
 
-基于 Electron、Vue 3、Vuex、TypeScript 和 Element Plus 开发的 Modbus 调试工具。
+基于 Tauri v2（Rust 后端）、Vue 3、Vuex、TypeScript 和 Element Plus 开发的 Modbus 调试工具。
+
+> 已从 Electron 迁移到 Tauri v2，详见 `MIGRATION.md`。
 
 ## 当前功能
 
@@ -32,35 +34,29 @@ V1.1 已实现 Modbus TCP Client、Modbus TCP Server 和 Modbus RTU Server。TCP
 
 ```powershell
 npm install
-npm run dev
+npm run tauri dev
 ```
+
+详见 `MIGRATION.md` 中的「构建前置条件」（需安装 Rust 工具链与系统 WebView 依赖）。
 
 ## 类型检查
 
 ```powershell
 npx vue-tsc --noEmit
-npx tsc -p tsconfig.electron.json --noEmit
 ```
 
 ## 生产构建
 
 ```powershell
-npm run build
-```
-
-## Windows 打包
-
-```powershell
-npm run dist
+npm run tauri build
 ```
 
 ## 工程结构
 
 ```text
-src/main       Electron 主进程、串口服务和 Modbus 协议
-src/preload    安全 API 桥接
-src/renderer   Vue 页面、组件、Vuex 和样式
-src/shared     主进程与渲染进程共用类型
+src-tauri        Rust 后端（主进程替代）：协议层、服务层、Tauri 命令与配置
+src/renderer     Vue 页面、组件、Vuex、样式与 Tauri 桥接（bridge.ts）
+src/shared       前后端共用类型
 ```
 
 ## 使用说明

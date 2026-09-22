@@ -1,0 +1,4 @@
+# 交叉编译配置
+# Linux arm64：使用已安装的 aarch64-linux-gnu 交叉工具链
+[target.aarch64-unknown-linux-gnu]
+linker = "aarch64-linux-gnu-gcc"
